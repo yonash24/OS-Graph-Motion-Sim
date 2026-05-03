@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
+#include "graph_visual.h"
 
 typedef struct Edge {
     int dest;
@@ -81,6 +82,8 @@ int main(void)
 
 
     runDijkstra(&graph, startNode, endNode);
+
+    visualizeGraph(&graph);
 
     freeGraph(&graph);
     fclose(file);
