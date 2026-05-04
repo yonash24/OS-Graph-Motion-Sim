@@ -7,6 +7,6 @@ typedef struct Node Node;
 typedef struct Graph Graph;
 
 
-void visualizeGraph(void* graph);
+void visualizeGraph(void* graph, int* path, int pathLen, int startNode, int endNode);
 
 #endif

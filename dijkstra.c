@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
-#include "graph_visual.h"
 
 typedef struct Edge {
     int dest;
@@ -20,7 +19,7 @@ typedef struct Graph {
     int numEdges;
 } Graph;
 
-void runDijkstra(Graph*, int, int, int* outPath, int* outLen);
+void runDijkstra(Graph*, int, int);
 void freeGraph(Graph* graph);
 
 int main(int argc, char* argv[])
@@ -84,19 +83,14 @@ int main(int argc, char* argv[])
 
     fclose(file);
 
-    // הרצת דייקסטרה ושמירת המסלול לצורך האנימציה
-    int path[N];
-    int pathLen = 0;
-    runDijkstra(&graph, startNode, endNode, path, &pathLen);
-
-    visualizeGraph(&graph, path, pathLen, startNode, endNode);
+    runDijkstra(&graph, startNode, endNode);
 
     freeGraph(&graph);
     return 0;
 }
 
 
-void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* outLen) {
+void runDijkstra(Graph* graph, int startNode, int endNode) {
     int n = graph->numNodes;
     int dist[n];     // Minimum distance from source to each node
     int prev[n];     // Parent node in the shortest path
@@ -112,8 +106,6 @@ void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* ou
     // Special case: Source is the same as destination
     if (startNode == endNode) {
         printf("0\n0\n");
-        outPath[0] = startNode;
-        *outLen = 1;
         return;
     }
 
@@ -161,28 +153,22 @@ void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* ou
     //if no path found
     if (dist[endNode] == INT_MAX) {
         printf("No path found\n");
-        *outLen = 0;
         return;
     }
 
-    // Path Reconstruction using the 'prev' array (built in reverse: end -> start)
-    int revPath[n];
-    int revCount = 0;
+    // Path Reconstruction using the 'prev' array
+    int path[n];
+    int pathCount = 0;
     int curr = endNode;
 
     while (curr != -1) {
-        revPath[revCount++] = curr;
+        path[pathCount++] = curr;
         curr = prev[curr];
     }
 
-    // Store path in forward order (start -> end) for the animation
-    *outLen = revCount;
-    for (int i = 0; i < revCount; i++)
-        outPath[i] = revPath[revCount - 1 - i];
-
-    // Print path (forward order)
-    for (int i = revCount - 1; i >= 0; i--) {
-        printf("%d", revPath[i]);
+    // Print path
+    for (int i = pathCount - 1; i >= 0; i--) {
+        printf("%d", path[i]);
         if (i > 0) printf(" -> ");
     }
     printf("\n");

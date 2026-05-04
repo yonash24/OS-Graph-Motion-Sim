@@ -1,0 +1,6 @@
+partner1: Full Name, <username1>@post.jce.ac.il, <github_username1>
+partner2: Full Name, <username2>@post.jce.ac.il, <github_username2>
+partner3: Full Name, <username3>@post.jce.ac.il, <github_username3>
+partner4: Full Name, <username4>@post.jce.ac.il, <github_username4>
+
+<repo link>
