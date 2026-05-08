@@ -1,26 +1,23 @@
-CC      = gcc
-CFLAGS  = -Wall -Wextra -O2 -Wno-unused-parameter -I./raylib-5.0_linux_amd64/include
-RAYLIB  = ./raylib-5.0_linux_amd64/lib/libraylib.a
-LIBS    = $(RAYLIB) -lm -ldl -lpthread
+# הגדרות משתנים - הופך את הקובץ לקריא ומקצועי
+CC = gcc
+CFLAGS = -Wall -std=c11 -I.
+LDFLAGS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
-SIM     = sim
-DIJK    = dijkstra
+# שמות קבצי המקור
+SRC = dijkstra.c visualization.c main.c
+OBJ = $(SRC:.c=.o)
 
-.PHONY: all milestone1 milestone2 milestone3 clean
+# אבן דרך 1: יוצר קובץ הרצה בשם dijkstra
+milestone1: dijkstra.c main.c
+	$(CC) $(CFLAGS) dijkstra.c main.c -o dijkstra $(LDFLAGS)
 
-all: milestone3
+# אבני דרך 2 ו-3: יוצרות קובץ הרצה בשם sim
+milestone2: $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o sim $(LDFLAGS)
 
-milestone1: $(DIJK)
+milestone3: $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o sim $(LDFLAGS)
 
-milestone2: $(SIM)
-
-milestone3: $(SIM)
-
-$(DIJK): dijkstra.c
-	$(CC) $(CFLAGS) -o $@ $^
-
-$(SIM): main.c graph_visual.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
-
+# ניקוי כל קבצי הקימפול - דרישת חובה
 clean:
-	rm -f $(SIM) $(DIJK)
+	rm -f dijkstra sim *.o
