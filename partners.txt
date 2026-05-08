@@ -1,0 +1,6 @@
+partner1: yona shay, yonash>@post.jce.ac.il, yonash24
+partner2: shahar shaatal, Shaharst@post.jce.ac.il, shaharsh96
+partner3: yehonatan aharoni, yehonatanah@post.jce.ac.il, gnsytah123-commits
+
+
+https://github.com/yonash24/OS-Graph-Motion-Sim/tree/044349343dcef4fab8acdaccad960f6997686509
