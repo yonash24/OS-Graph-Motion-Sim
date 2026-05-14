@@ -1,179 +1,104 @@
-#include "dijkstra.h"
+#include "main.h"
 
-
-
-
-
-
-
-int loadGraph(const char* filename, Graph* graph, int* startNode, int* endNode) {
+int loadGraphExtended(const char* filename, Graph* graph, Traveler** travelersOut, int* numTravelersOut) {
     FILE *file = fopen(filename, "r");
-    if (file == NULL) {
-        printf("Error: Could not open file %s.\n", filename);
-        return 0;
-    }
+    if (!file) return 0;
 
     int N, M;
-    if (fscanf(file, "%d %d", &N, &M) != 2) {
-        printf("Error: Could not read N and M.\n");
-        fclose(file);
-        return 0;
-    }
-
-    // אתחול מבנה הגרף
+    if (fscanf(file, "%d %d", &N, &M) != 2) { fclose(file); return 0; }
+    
     graph->numNodes = N;
-    graph->numEdges = M;
     graph->nodes = (Node*)malloc(N * sizeof(Node));
-    if (graph->nodes == NULL) {
-        fclose(file);
-        return 0;
-    }
-
     for (int i = 0; i < N; i++) {
         graph->nodes[i].id = i;
         graph->nodes[i].edgeList = NULL;
     }
 
-    // קריאת הקשתות
-    int src, dest, weight;
     for (int i = 0; i < M; i++) {
-        if (fscanf(file, "%d %d %d", &src, &dest, &weight) != 3) {
-            printf("Error: Invalid edge data at line %d.\n", i + 2);
-            freeGraph(graph);
-            fclose(file);
-            return 0;
-        }
-
-        if (weight < 0) {
-            printf("Error: Negative weight is not allowed.\n");
-            freeGraph(graph);
-            fclose(file);
-            return 0;
-        }
-
+        int src, dst, w;
+        fscanf(file, "%d %d %d", &src, &dst, &w);
         Edge* newEdge = (Edge*)malloc(sizeof(Edge));
-        if (!newEdge) return 0;
-
-        newEdge->dest = dest;
-        newEdge->weight = weight;
+        newEdge->dest = dst;
+        newEdge->weight = w;
         newEdge->next = graph->nodes[src].edgeList;
         graph->nodes[src].edgeList = newEdge;
     }
 
-    // קריאת נקודות ההתחלה והסיום בסוף הקובץ
-    if (fscanf(file, "%d %d", startNode, endNode) != 2) {
-        printf("Error: Could not read start and end nodes.\n");
-        freeGraph(graph);
-        fclose(file);
-        return 0;
+    // קריאת מספר הנוסעים
+    if (fscanf(file, "%d", numTravelersOut) != 1) { fclose(file); return 0; }
+    
+    *travelersOut = (Traveler*)malloc((*numTravelersOut) * sizeof(Traveler));
+    Traveler* tArr = *travelersOut;
+    
+    Color palette[] = { RED, BLUE, GREEN, ORANGE, PURPLE, MAROON, LIME, GOLD, DARKGREEN, SKYBLUE };
+
+    for (int i = 0; i < *numTravelersOut; i++) {
+        int src, dst;
+        fscanf(file, "%d %d", &src, &dst);
+        
+        tArr[i].path = (int*)malloc(N * sizeof(int));
+        runDijkstra(graph, src, dst, tArr[i].path, &tArr[i].pathLen);
+        
+        tArr[i].color = palette[i % 10];
+        tArr[i].state = (tArr[i].pathLen > 1) ? ANIM_MOVING : ANIM_DONE;
+        tArr[i].edgeIdx = 0;
+        tArr[i].subJump = 0;
+        tArr[i].timer = 0;
+        tArr[i].arrived = (tArr[i].pathLen <= 1);
+        tArr[i].currentPos = (Vector2){0,0};
     }
 
     fclose(file);
-    return 1; // הצלחה
+    return 1;
 }
-
-
 
 void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* outLen) {
     int n = graph->numNodes;
-    int dist[n];     // Minimum distance from source to each node
-    int prev[n];     // Parent node in the shortest path
-    int visited[n];  // Boolean array to mark finalized nodes
+    int dist[n], prev[n], visited[n];
+    for (int i = 0; i < n; i++) { dist[i] = INT_MAX; prev[i] = -1; visited[i] = 0; }
 
-    //init
-    for (int i = 0; i < n; i++) {
-        dist[i] = INT_MAX;
-        prev[i] = -1;
-        visited[i] = 0;
-    }
-
-    // Special case: Source is the same as destination
-    if (startNode == endNode) {
-        printf("0\n0\n");
-        outPath[0] = startNode;
-        *outLen = 1;
-        return;
-    }
+    if (startNode == endNode) { outPath[0] = startNode; *outLen = 1; return; }
 
     dist[startNode] = 0;
-
-    // Main Loop
     for (int count = 0; count < n; count++) {
-
-        // Find the node with the minimum distance that hasn't been visited yet
-        int u = -1;
-        int min_dist = INT_MAX;
-
+        int u = -1, min_dist = INT_MAX;
         for (int i = 0; i < n; i++) {
-            if (!visited[i] && dist[i] < min_dist) {
-                min_dist = dist[i];
-                u = i;
-            }
+            if (!visited[i] && dist[i] < min_dist) { min_dist = dist[i]; u = i; }
         }
-
-        // Break if no reachable nodes remain or if graph is disconnected
         if (u == -1 || dist[u] == INT_MAX) break;
-
         visited[u] = 1;
-
-        // Early exit if we reached the target node
         if (u == endNode) break;
 
-        // Relaxation: Check all outgoing edges from the current node u
-        Edge* edge = graph->nodes[u].edgeList;
-        while (edge != NULL) {
-            int v = edge->dest;
-            int w = edge->weight;
-
-            // If a shorter path to v is found via u
-            if (!visited[v] && dist[u] + w < dist[v]) {
-                dist[v] = dist[u] + w;
-                prev[v] = u;
+        Edge* e = graph->nodes[u].edgeList;
+        while (e) {
+            if (!visited[e->dest] && dist[u] + e->weight < dist[e->dest]) {
+                dist[e->dest] = dist[u] + e->weight;
+                prev[e->dest] = u;
             }
-            edge = edge->next; // Move to the next edge in the adjacency list
+            e = e->next;
         }
     }
 
-    //output Results
-
-    //if no path found
-    if (dist[endNode] == INT_MAX) {
-        printf("No path found\n");
-        *outLen = 0;
-        return;
-    }
-
-    // Path Reconstruction using the 'prev' array (built in reverse: end -> start)
-    int revPath[n];
-    int revCount = 0;
-    int curr = endNode;
-
-    while (curr != -1) {
-        revPath[revCount++] = curr;
-        curr = prev[curr];
-    }
-
-    // Store path in forward order (start -> end) for the animation
-    *outLen = revCount;
-    for (int i = 0; i < revCount; i++)
-        outPath[i] = revPath[revCount - 1 - i];
-
-    // Print path (forward order)
-    for (int i = revCount - 1; i >= 0; i--) {
-        printf("%d", revPath[i]);
-        if (i > 0) printf(" -> ");
-    }
-    printf("\n");
-
-    // Print the total weight
-    printf("%d\n", dist[endNode]);
+    if (dist[endNode] == INT_MAX) { *outLen = 0; return; }
+    int temp[n], count = 0, curr = endNode;
+    while (curr != -1) { temp[count++] = curr; curr = prev[curr]; }
+    *outLen = count;
+    for (int i = 0; i < count; i++) outPath[i] = temp[count - 1 - i];
 }
 
+int findEdgeWeight(Graph* g, int from, int to) {
+    Edge* e = g->nodes[from].edgeList;
+    while (e) {
+        if (e->dest == to) return e->weight;
+        e = e->next;
+    }
+    return 1;
+}
 
 void freeGraph(Graph* graph) {
     for (int i = 0; i < graph->numNodes; i++) {
         Edge* curr = graph->nodes[i].edgeList;
-        while (curr != NULL) {
+        while (curr) {
             Edge* temp = curr;
             curr = curr->next;
             free(temp);

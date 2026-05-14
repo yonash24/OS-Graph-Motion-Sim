@@ -1,23 +1,26 @@
-# הגדרות משתנים - הופך את הקובץ לקריא ומקצועי
 CC = gcc
-CFLAGS = -Wall -std=c11 -I.
-LDFLAGS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+CFLAGS = -Wall -Wextra -std=c11 -I.
+LDFLAGS = -L. -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
-# שמות קבצי המקור
 SRC = dijkstra.c visualization.c main.c
 OBJ = $(SRC:.c=.o)
+TARGET_MS1 = dijkstra
+TARGET_SIM = sim
 
-# אבן דרך 1: יוצר קובץ הרצה בשם dijkstra
+.PHONY: all clean milestone1 milestone2 milestone3 milestone4
+
+all: milestone4
+
 milestone1: dijkstra.c main.c
-	$(CC) $(CFLAGS) dijkstra.c main.c -o dijkstra $(LDFLAGS)
+	$(CC) $(CFLAGS) dijkstra.c main.c -o $(TARGET_MS1) $(LDFLAGS)
 
-# אבני דרך 2 ו-3: יוצרות קובץ הרצה בשם sim
-milestone2: $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o sim $(LDFLAGS)
+milestone2 milestone3 milestone4: $(TARGET_SIM)
 
-milestone3: $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o sim $(LDFLAGS)
+$(TARGET_SIM): $(OBJ)
+	$(CC) $(OBJ) -o $(TARGET_SIM) $(LDFLAGS)
 
-# ניקוי כל קבצי הקימפול - דרישת חובה
+%.o: %.c main.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
 clean:
-	rm -f dijkstra sim *.o
+	rm -f $(TARGET_MS1) $(TARGET_SIM) *.o
