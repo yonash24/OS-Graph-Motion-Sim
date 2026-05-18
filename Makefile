@@ -1,26 +1,29 @@
+# הגדרות משתנים - הופך את הקובץ לקריא ומקצועי
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -I.
-LDFLAGS = -L. -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+CFLAGS = -Wall -std=c11 -I. -I./raylib-5.0_linux_amd64/include
+LDFLAGS = -L./raylib-5.0_linux_amd64/lib -lraylib -l:libGL.so.1 -lm -lpthread -ldl -lrt -l:libX11.so.6 -Wl,-rpath,./raylib-5.0_linux_amd64/lib
 
+# שמות קבצי המקור
 SRC = dijkstra.c visualization.c main.c
 OBJ = $(SRC:.c=.o)
-TARGET_MS1 = dijkstra
-TARGET_SIM = sim
 
-.PHONY: all clean milestone1 milestone2 milestone3 milestone4
-
-all: milestone4
-
+# אבן דרך 1: יוצר קובץ הרצה בשם dijkstra
 milestone1: dijkstra.c main.c
-	$(CC) $(CFLAGS) dijkstra.c main.c -o $(TARGET_MS1) $(LDFLAGS)
+	$(CC) $(CFLAGS) dijkstra.c main.c -o dijkstra $(LDFLAGS)
 
-milestone2 milestone3 milestone4: $(TARGET_SIM)
+# אבני דרך 2 ו-3: יוצרות קובץ הרצה בשם sim
+milestone2: $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o sim $(LDFLAGS)
 
-$(TARGET_SIM): $(OBJ)
-	$(CC) $(OBJ) -o $(TARGET_SIM) $(LDFLAGS)
+milestone3: $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o sim $(LDFLAGS)
 
-%.o: %.c main.h
-	$(CC) $(CFLAGS) -c $< -o $@
+milestone4: dijkstra.c visualization.c main5.c
+	$(CC) $(CFLAGS) dijkstra.c visualization.c main5.c -o sim $(LDFLAGS)
 
+milestone5: dijkstra.c visualization.c main5.c
+	$(CC) $(CFLAGS) dijkstra.c visualization.c main5.c -o sim $(LDFLAGS)
+
+# ניקוי כל קבצי הקימפול - דרישת חובה
 clean:
-	rm -f $(TARGET_MS1) $(TARGET_SIM) *.o
+	rm -f dijkstra sim *.o

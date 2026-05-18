@@ -6,6 +6,30 @@
 #include <math.h>
 #include <stdlib.h>
 #include "dijkstra.h"
+#include "ipc.h"
+
+typedef enum {
+    ANIM_IDLE,      // לפני לחיצת PLAY
+    ANIM_MOVING,    // ישות נעה לאורך קשת
+    ANIM_PAUSING,   // ישות מחכה בצומת ביניים (שנייה שלמה)
+    ANIM_DONE       // הגיעה ליעד
+} AnimState;
+
+// State for each child in milestone 5
+typedef struct {
+    pid_t pid;
+    int currentNode;
+    int nextNode;
+    int isFinished;
+    int isActive;   // 1 if child has started, 0 otherwise
+    Color color;    // Assigned color for visualization
+    
+    // Animation state
+    float timer;
+    int subJump;
+    Vector2 entPos;
+    AnimState animState;
+} TravelerState;
 
 #ifdef __MINGW32__
 #include <sys/types.h>
@@ -18,12 +42,7 @@ extern int stat64i32(const char *path, struct _stat *buffer) {
 #endif
 
 
-typedef enum {
-    ANIM_IDLE,      // לפני לחיצת PLAY
-    ANIM_MOVING,    // ישות נעה לאורך קשת
-    ANIM_PAUSING,   // ישות מחכה בצומת ביניים (שנייה שלמה)
-    ANIM_DONE       // הגיעה ליעד
-} AnimState;
+
 
 #define JUMP_DURATION 0.30f  // 300ms לכל קפיצה
 #define NODE_PAUSE    1.00f  // שנייה שלמה בכל צומת ביניים
@@ -35,5 +54,6 @@ int findEdgeWeight(Graph* g, int from, int to);
 int isOnPath(int* path, int pathLen, int i, int dest);
 
 void visualizeGraph(void* g_ptr, int* path, int pathLen, int startNode, int endNode);
+void visualizeMultiTravelers(void* g_ptr, TravelerState* states, int numTravelers, int pipe_fd);
 
 #endif //VISUALIZATION_H

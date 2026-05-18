@@ -26,8 +26,15 @@ typedef struct Graph {
     int numEdges;
 } Graph;
 
+typedef struct {
+    int startNode;
+    int endNode;
+} Traveler;
+
+
 
 int loadGraph(const char* filename, Graph* graph, int* startNode, int* endNode);
+int loadGraphAndTravelers(const char* filename, Graph* graph, Traveler** outTravelers, int* outNumTravelers);
 void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* outLen);
 void freeGraph(Graph* graph);
 
