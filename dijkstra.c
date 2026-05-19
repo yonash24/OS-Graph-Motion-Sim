@@ -154,7 +154,9 @@ void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* ou
 
     // Special case: Source is the same as destination
     if (startNode == endNode) {
+#if !defined(MILESTONE) || MILESTONE < 4
         printf("0\n0\n");
+#endif
         outPath[0] = startNode;
         *outLen = 1;
         return;
@@ -203,7 +205,9 @@ void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* ou
 
     //if no path found
     if (dist[endNode] == INT_MAX) {
+#if !defined(MILESTONE) || MILESTONE < 4
         printf("No path found\n");
+#endif
         *outLen = 0;
         return;
     }
@@ -224,6 +228,7 @@ void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* ou
         outPath[i] = revPath[revCount - 1 - i];
 
     // Print path (forward order)
+#if !defined(MILESTONE) || MILESTONE < 4
     for (int i = revCount - 1; i >= 0; i--) {
         printf("%d", revPath[i]);
         if (i > 0) printf(" -> ");
@@ -232,6 +237,7 @@ void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* ou
 
     // Print the total weight
     printf("%d\n", dist[endNode]);
+#endif
 }
 
 

@@ -1,238 +1,13 @@
+#define _DEFAULT_SOURCE
 #include "visualization.h"
+#include <signal.h>
 
-
-void visualizeGraph(void* g_ptr, int* path, int pathLen, int startNode, int endNode) {
-    Graph* graph = (Graph*)g_ptr;
-    const int SCR_W = 800;
-    const int SCR_H = 600;
-
-    InitWindow(SCR_W, SCR_H, "OS Graph Motion Sim - Milestone 3");
-    SetTargetFPS(60);
-
-    // חישוב ושמירת מיקומי הצמתים במעגל
-    Vector2* positions = (Vector2*)malloc(graph->numNodes * sizeof(Vector2));
-    float radius = 200.0f;
-    Vector2 center = { (float)SCR_W / 2, (float)SCR_H / 2 };
-
-    for (int i = 0; i < graph->numNodes; i++) {
-        float angle = i * (2.0f * PI / graph->numNodes);
-        positions[i].x = center.x + radius * cosf(angle);
-        positions[i].y = center.y + radius * sinf(angle);
-    }
-
-    int hasPath = (pathLen > 1);
-
-    // חישוב סך המרחק למסלול
-    int totalDist = 0;
-    for (int p = 0; p < pathLen - 1; p++)
-        totalDist += findEdgeWeight(graph, path[p], path[p + 1]);
-
-    // מצב אנימציה
-    AnimState animState = ANIM_IDLE;
-    int playing  = 0;
-    int edgeIdx  = 0;   // אינדקס קשת נוכחית ב-path: path[edgeIdx]->path[edgeIdx+1]
-    int subJump  = 0;   // מספר הקפיצה הנוכחית בתוך הקשת (0 עד weight-1)
-    float timer  = 0.0f;
-    Vector2 entPos = (pathLen > 0) ? positions[path[0]] : center;
-
-    // כפתור PLAY/STOP
-    Rectangle btn = { 20, SCR_H - 50, 120, 32 };
-
-    // לולאת הגרפיקה הראשית
-    while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
-
-        // --- טיפול בלחיצת כפתור ---
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hasPath) {
-            Vector2 mouse = GetMousePosition();
-            if (CheckCollisionPointRec(mouse, btn)) {
-                if (animState == ANIM_DONE) {
-                    // איפוס האנימציה
-                    animState = ANIM_IDLE;
-                    edgeIdx = 0; subJump = 0; timer = 0.0f;
-                    entPos = positions[path[0]];
-                    playing = 0;
-                } else {
-                    playing = !playing;
-                    // הפעלה ראשונה: מעבר ממצב המתנה למצב תנועה
-                    if (animState == ANIM_IDLE && playing)
-                        animState = ANIM_MOVING;
-                }
-            }
-        }
-
-        // --- עדכון האנימציה ---
-        if (playing) {
-            if (animState == ANIM_MOVING) {
-                int from = path[edgeIdx];
-                int to   = path[edgeIdx + 1];
-                int w    = findEdgeWeight(graph, from, to);
-
-                timer += dt;
-
-                // עדכון מיקום הישות לאורך הקשת
-                float jumpProg = timer / JUMP_DURATION;
-                if (jumpProg > 1.0f) jumpProg = 1.0f;
-                float edgeT = ((float)subJump + jumpProg) / (float)w;
-                entPos = lerpV2(positions[from], positions[to], edgeT);
-
-                // סיום קפיצה אחת (300ms עברו)
-                if (timer >= JUMP_DURATION) {
-                    timer -= JUMP_DURATION;
-                    subJump++;
-
-                    if (subJump >= w) {
-                        // סיום קשת שלמה - הגענו לצומת הבא
-                        subJump = 0;
-                        edgeIdx++;
-                        entPos = positions[path[edgeIdx]];  // חיבור לצומת
-
-                        if (edgeIdx >= pathLen - 1) {
-                            // הגענו לצומת היעד
-                            animState = ANIM_DONE;
-                            playing = 0;
-                        } else {
-                            // צומת ביניים: עצירה של שנייה שלמה
-                            animState = ANIM_PAUSING;
-                            timer = 0.0f;
-                        }
-                    }
-                }
-
-            } else if (animState == ANIM_PAUSING) {
-                // המתנה בצומת ביניים
-                timer += dt;
-                if (timer >= NODE_PAUSE) {
-                    timer = 0.0f;
-                    animState = ANIM_MOVING;
-                }
-            }
-        }
-
-        // --- ציור ---
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        // 1. ציור הקשתות (Edges), חצים ומשקלים
-        for (int i = 0; i < graph->numNodes; i++) {
-            Edge* currEdge = graph->nodes[i].edgeList;
-            while (currEdge != NULL) {
-                Vector2 startPos = positions[i];
-                Vector2 endPos   = positions[currEdge->dest];
-
-                // הדגשת קשתות שנמצאות במסלול הקצר ביותר
-                int onPath = isOnPath(path, pathLen, i, currEdge->dest);
-                Color edgeColor = onPath ? ORANGE : LIGHTGRAY;
-                float lineThick = onPath ? 3.5f : 1.8f;
-
-                DrawLineEx(startPos, endPos, lineThick, edgeColor);
-
-                // ציור רקע קטן למשקל כדי שיהיה קריא
-                float midX = (startPos.x + endPos.x) / 2.0f;
-                float midY = (startPos.y + endPos.y) / 2.0f;
-                DrawCircle((int)midX, (int)midY, 10, RAYWHITE);
-                DrawText(TextFormat("%d", currEdge->weight), (int)midX - 5, (int)midY - 5, 15, DARKBLUE);
-
-                // סימון חץ (עיגול קטן ליד היעד כדי להראות כיווניות)
-                float ang = atan2f(endPos.y - startPos.y, endPos.x - startPos.x);
-                float arrowDist = 22.0f;
-                DrawCircle(
-                    (int)(endPos.x - arrowDist * cosf(ang)),
-                    (int)(endPos.y - arrowDist * sinf(ang)),
-                    4, DARKGRAY
-                );
-
-                currEdge = currEdge->next;
-            }
-        }
-
-        // 2. ציור הצמתים (Nodes) - מעל הקווים
-        for (int i = 0; i < graph->numNodes; i++) {
-            Color nodeColor = BLUE;
-            if (hasPath && i == path[0])           nodeColor = GREEN;  // מקור
-            if (hasPath && i == path[pathLen - 1]) nodeColor = RED;    // יעד
-
-            DrawCircleV(positions[i], 20, nodeColor);
-            DrawCircleLines((int)positions[i].x, (int)positions[i].y, 20, DARKBLUE);
-            DrawText(TextFormat("%d", i),
-                     (int)positions[i].x - 5, (int)positions[i].y - 8, 16, WHITE);
-        }
-
-        // 3. ציור הישות הנעה (עיגול צהוב)
-        if (animState != ANIM_IDLE && hasPath) {
-            DrawCircleV(entPos, 12, YELLOW);
-            DrawCircleLines((int)entPos.x, (int)entPos.y, 12, GOLD);
-        } else if (animState == ANIM_IDLE && hasPath) {
-            // לפני הפעלה: הישות ממוקמת ליד צומת המקור
-            DrawCircleV(positions[path[0]], 12, YELLOW);
-            DrawCircleLines((int)positions[path[0]].x, (int)positions[path[0]].y, 12, GOLD);
-        }
-
-        // 4. כפתור PLAY / STOP / RESTART
-        Color btnColor = playing ? RED : GREEN;
-        if (animState == ANIM_DONE) btnColor = DARKBLUE;
-        if (!hasPath) btnColor = GRAY;
-
-        DrawRectangleRec(btn, btnColor);
-        DrawRectangleLinesEx(btn, 2, DARKGRAY);
-
-        const char* btnLabel;
-        if      (animState == ANIM_DONE)    btnLabel = "RESTART";
-        else if (playing)                   btnLabel = "STOP";
-        else                                btnLabel = "PLAY";
-
-        int bw = MeasureText(btnLabel, 18);
-        DrawText(btnLabel,
-                 (int)(btn.x + (btn.width  - bw) / 2),
-                 (int)(btn.y + (btn.height - 18) / 2),
-                 18, WHITE);
-
-        // 5. כותרת ומידע
-        DrawText("OS Graph Motion Sim - Milestone 3", 20, 15, 18, DARKGRAY);
-
-        if (hasPath) {
-            DrawText(TextFormat("Shortest path: %d -> %d  |  Distance: %d",
-                                startNode, endNode, totalDist),
-                     20, 42, 14, DARKGRAY);
-        } else {
-            DrawText("No path found between source and destination", 20, 42, 14, RED);
-        }
-
-        // אגנדה
-        DrawCircle(20, SCR_H - 90, 8, GREEN);
-        DrawText("Source", 35, SCR_H - 97, 13, DARKGRAY);
-        DrawCircle(20, SCR_H - 72, 8, RED);
-        DrawText("Destination", 35, SCR_H - 79, 13, DARKGRAY);
-        DrawCircle(20, SCR_H - 54, 8, YELLOW);
-        DrawText("Moving entity", 35, SCR_H - 61, 13, DARKGRAY);
-
-        DrawText("ESC to exit", SCR_W - 95, SCR_H - 25, 13, GRAY);
-
-        // 6. הודעת הגעה ליעד
-        if (animState == ANIM_DONE) {
-            const char* msg  = "Destination Reached!";
-            int tw = MeasureText(msg, 30);
-            int rx = SCR_W / 2 - tw / 2 - 14;
-            int ry = SCR_H / 2 - 28;
-            DrawRectangle(rx, ry, tw + 28, 56, Fade(YELLOW, 0.92f));
-            DrawRectangleLines(rx, ry, tw + 28, 56, GOLD);
-            DrawText(msg, SCR_W / 2 - tw / 2, SCR_H / 2 - 15, 30, DARKGREEN);
-        }
-
-        EndDrawing();
-    }
-
-    free(positions);
-    CloseWindow();
-}
-
-
+/* ── helpers ──────────────────────────────────────────────── */
 
 Vector2 lerpV2(Vector2 a, Vector2 b, float t) {
     return (Vector2){ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
 }
 
-// מחזיר את משקל הקשת מ-from ל-to, או 1 אם לא נמצאה
 int findEdgeWeight(Graph* g, int from, int to) {
     Edge* e = g->nodes[from].edgeList;
     while (e) {
@@ -242,158 +17,335 @@ int findEdgeWeight(Graph* g, int from, int to) {
     return 1;
 }
 
-// בודק אם הקשת (i->dest) היא חלק מהמסלול הקצר ביותר
 int isOnPath(int* path, int pathLen, int i, int dest) {
     for (int p = 0; p < pathLen - 1; p++)
         if (path[p] == i && path[p + 1] == dest) return 1;
     return 0;
 }
 
-#include <unistd.h>
+/* ── helper: compute node positions on a circle ──────────── */
 
-void visualizeMultiTravelers(void* g_ptr, TravelerState* states, int numTravelers, int pipe_fd) {
-    Graph* graph = (Graph*)g_ptr;
-    const int SCR_W = 800;
-    const int SCR_H = 600;
-
-    InitWindow(SCR_W, SCR_H, "OS Graph Motion Sim - Milestone 5");
-    SetTargetFPS(60);
-
+static Vector2* buildPositions(Graph* graph, int SCR_W, int SCR_H) {
     Vector2* positions = (Vector2*)malloc(graph->numNodes * sizeof(Vector2));
     float radius = 200.0f;
     Vector2 center = { (float)SCR_W / 2, (float)SCR_H / 2 };
-
     for (int i = 0; i < graph->numNodes; i++) {
         float angle = i * (2.0f * PI / graph->numNodes);
         positions[i].x = center.x + radius * cosf(angle);
         positions[i].y = center.y + radius * sinf(angle);
     }
+    return positions;
+}
 
-    for (int i = 0; i < numTravelers; i++) {
-        states[i].entPos = positions[states[i].currentNode];
+/* ── helper: draw the graph (edges + nodes) ──────────────── */
+
+static void drawGraph(Graph* graph, Vector2* positions,
+                      int* path, int pathLen) {
+    // Edges
+    for (int i = 0; i < graph->numNodes; i++) {
+        Edge* e = graph->nodes[i].edgeList;
+        while (e) {
+            Vector2 sp = positions[i];
+            Vector2 ep = positions[e->dest];
+            int     on = isOnPath(path, pathLen, i, e->dest);
+            DrawLineEx(sp, ep, on ? 3.5f : 1.8f, on ? ORANGE : LIGHTGRAY);
+
+            float midX = (sp.x + ep.x) / 2.0f;
+            float midY = (sp.y + ep.y) / 2.0f;
+            DrawCircle((int)midX, (int)midY, 10, RAYWHITE);
+            DrawText(TextFormat("%d", e->weight),
+                     (int)midX - 5, (int)midY - 5, 15, DARKBLUE);
+
+            float ang = atan2f(ep.y - sp.y, ep.x - sp.x);
+            DrawCircle((int)(ep.x - 22.0f * cosf(ang)),
+                       (int)(ep.y - 22.0f * sinf(ang)), 4, DARKGRAY);
+            e = e->next;
+        }
     }
+    // Nodes
+    for (int i = 0; i < graph->numNodes; i++) {
+        Color nc = BLUE;
+        if (path && pathLen > 0 && i == path[0])           nc = GREEN;
+        if (path && pathLen > 0 && i == path[pathLen - 1]) nc = RED;
+        DrawCircleV(positions[i], 20, nc);
+        DrawCircleLines((int)positions[i].x, (int)positions[i].y, 20, DARKBLUE);
+        DrawText(TextFormat("%d", i),
+                 (int)positions[i].x - 5, (int)positions[i].y - 8, 16, WHITE);
+    }
+}
 
-    int playing = 1;
-    int allFinished = 0;
+/* ═══════════════════════════════════════════════════════════
+   Milestone 1-3: single traveler
+   ═══════════════════════════════════════════════════════════ */
+
+void visualizeGraph(void* g_ptr, int* path, int pathLen,
+                    int startNode, int endNode) {
+    Graph* graph = (Graph*)g_ptr;
+    const int SCR_W = 800, SCR_H = 600;
+
+    InitWindow(SCR_W, SCR_H, "OS Graph Motion Sim - Milestone 3");
+    SetTargetFPS(60);
+
+    Vector2* positions = buildPositions(graph, SCR_W, SCR_H);
+
+    int hasPath   = (pathLen > 1);
+    int totalDist = 0;
+    for (int p = 0; p < pathLen - 1; p++)
+        totalDist += findEdgeWeight(graph, path[p], path[p + 1]);
+
+    AnimState animState = ANIM_IDLE;
+    int   playing = 0, edgeIdx = 0, subJump = 0;
+    float timer   = 0.0f;
+    Vector2 entPos = (pathLen > 0) ? positions[path[0]] : (Vector2){SCR_W/2.f, SCR_H/2.f};
     Rectangle btn = { 20, SCR_H - 50, 120, 32 };
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hasPath) {
             Vector2 mouse = GetMousePosition();
             if (CheckCollisionPointRec(mouse, btn)) {
-                if (!allFinished) {
+                if (animState == ANIM_DONE) {
+                    animState = ANIM_IDLE; edgeIdx = 0; subJump = 0;
+                    timer = 0.0f; entPos = positions[path[0]]; playing = 0;
+                } else {
                     playing = !playing;
+                    if (animState == ANIM_IDLE && playing) animState = ANIM_MOVING;
                 }
             }
         }
 
         if (playing) {
-            IPC_Message msg;
-            while (read(pipe_fd, &msg, sizeof(msg)) == sizeof(IPC_Message)) {
-                for (int i = 0; i < numTravelers; i++) {
-                    if (states[i].pid == msg.child_pid) {
+            if (animState == ANIM_MOVING) {
+                int from = path[edgeIdx], to = path[edgeIdx + 1];
+                int w = findEdgeWeight(graph, from, to);
+                timer += dt;
+                float jp = timer / JUMP_DURATION; if (jp > 1.0f) jp = 1.0f;
+                entPos = lerpV2(positions[from], positions[to],
+                                ((float)subJump + jp) / (float)w);
+                if (timer >= JUMP_DURATION) {
+                    timer -= JUMP_DURATION; subJump++;
+                    if (subJump >= w) {
+                        subJump = 0; edgeIdx++;
+                        entPos = positions[path[edgeIdx]];
+                        if (edgeIdx >= pathLen - 1) { animState = ANIM_DONE; playing = 0; }
+                        else { animState = ANIM_PAUSING; timer = 0.0f; }
+                    }
+                }
+            } else if (animState == ANIM_PAUSING) {
+                timer += dt;
+                if (timer >= NODE_PAUSE) { timer = 0.0f; animState = ANIM_MOVING; }
+            }
+        }
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+        drawGraph(graph, positions, path, pathLen);
+        if (hasPath) {
+            if (animState != ANIM_IDLE) { DrawCircleV(entPos, 12, YELLOW); DrawCircleLines((int)entPos.x, (int)entPos.y, 12, GOLD); }
+            else { DrawCircleV(positions[path[0]], 12, YELLOW); DrawCircleLines((int)positions[path[0]].x, (int)positions[path[0]].y, 12, GOLD); }
+        }
+        Color btnC = !hasPath ? GRAY : (animState == ANIM_DONE ? DARKBLUE : (playing ? RED : GREEN));
+        DrawRectangleRec(btn, btnC); DrawRectangleLinesEx(btn, 2, DARKGRAY);
+        const char* lbl = animState == ANIM_DONE ? "RESTART" : (playing ? "STOP" : "PLAY");
+        int bw = MeasureText(lbl, 18);
+        DrawText(lbl, (int)(btn.x + (btn.width - bw)/2), (int)(btn.y + (btn.height - 18)/2), 18, WHITE);
+        DrawText("OS Graph Motion Sim - Milestone 3", 20, 15, 18, DARKGRAY);
+        if (hasPath) DrawText(TextFormat("Shortest path: %d -> %d  |  Distance: %d", startNode, endNode, totalDist), 20, 42, 14, DARKGRAY);
+        if (animState == ANIM_DONE) {
+            const char* msg = "Destination Reached!"; int tw = MeasureText(msg, 30);
+            DrawRectangle(SCR_W/2 - tw/2 - 14, SCR_H/2 - 28, tw + 28, 56, Fade(YELLOW, 0.92f));
+            DrawText(msg, SCR_W/2 - tw/2, SCR_H/2 - 15, 30, DARKGREEN);
+        }
+        DrawText("ESC to exit", SCR_W - 95, SCR_H - 25, 13, GRAY);
+        EndDrawing();
+    }
+    free(positions);
+    CloseWindow();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Milestones 4 & 5: multi-traveler
+   pipe_fd == -1  → Milestone 4 (parent-driven from path[])
+   pipe_fd >= 0   → Milestone 5 (IPC-driven via pipe)
+   ═══════════════════════════════════════════════════════════ */
+
+void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
+                             int numTravelers, int pipe_fd) {
+    Graph* graph = (Graph*)g_ptr;
+    const int SCR_W = 800, SCR_H = 600;
+    int milestone = (pipe_fd == -1) ? 4 : 5;
+
+    InitWindow(SCR_W, SCR_H,
+               milestone == 4
+                   ? "OS Graph Motion Sim - Milestone 4"
+                   : "OS Graph Motion Sim - Milestone 5");
+    SetTargetFPS(60);
+
+    Vector2* positions = buildPositions(graph, SCR_W, SCR_H);
+
+    // Place each traveler at its start node
+    for (int i = 0; i < numTravelers; i++)
+        states[i].entPos = positions[states[i].currentNode];
+
+    // Milestone 5 auto-starts; Milestone 4 waits for PLAY button
+    int playing     = (milestone == 5) ? 1 : 0;
+    int allFinished = 0;
+    Rectangle btn   = { 20, SCR_H - 50, 120, 32 };
+
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+
+        /* ── Button ── */
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !allFinished) {
+            Vector2 mouse = GetMousePosition();
+            if (CheckCollisionPointRec(mouse, btn)) {
+                playing = !playing;
+                // Milestone 4: activate travelers on first PLAY
+                if (milestone == 4 && playing) {
+                    for (int i = 0; i < numTravelers; i++)
+                        if (states[i].animState == ANIM_IDLE && states[i].pathLen > 1) {
+                            states[i].animState = ANIM_MOVING;
+                            states[i].isActive  = 1;
+                        }
+                }
+            }
+        }
+
+        if (playing) {
+            /* ── Milestone 5: read IPC messages from pipe ── */
+            if (milestone == 5) {
+                IPC_Message msg;
+                while (read(pipe_fd, &msg, sizeof(msg)) == (ssize_t)sizeof(IPC_Message)) {
+                    for (int i = 0; i < numTravelers; i++) {
+                        if (states[i].pid != msg.child_pid) continue;
                         if (msg.is_destination) {
-                            states[i].isFinished = 1;
-                            states[i].isActive = 0;
+                            states[i].isFinished  = 1;
+                            states[i].isActive    = 0;
+                            states[i].animState   = ANIM_DONE;
                             states[i].currentNode = msg.current_node;
-                            states[i].entPos = positions[msg.current_node];
-                            printf("[PID=%d] arrived at node %d | DESTINATION\n", msg.child_pid, msg.current_node);
+                            states[i].entPos      = positions[msg.current_node];
+                            printf("[PID=%d] arrived at node %d | DESTINATION\n",
+                                   msg.child_pid, msg.current_node);
+                            fflush(stdout);
                         } else {
                             states[i].currentNode = msg.current_node;
-                            states[i].nextNode = msg.next_node;
-                            states[i].isActive = 1;
-                            states[i].timer = 0.0f;
-                            states[i].subJump = 0;
-                            states[i].entPos = positions[msg.current_node];
-                            printf("[PID=%d] arrived at node %d | next node: %d\n", msg.child_pid, msg.current_node, msg.next_node);
+                            states[i].nextNode    = msg.next_node;
+                            states[i].isActive    = 1;
+                            states[i].animState   = ANIM_MOVING;
+                            states[i].timer       = 0.0f;
+                            states[i].subJump     = 0;
+                            states[i].entPos      = positions[msg.current_node];
+                            printf("[PID=%d] arrived at node %d | next node: %d\n",
+                                   msg.child_pid, msg.current_node, msg.next_node);
+                            fflush(stdout);
                         }
                         break;
                     }
                 }
             }
 
+            /* ── Animation update (both milestones share the same drawing;
+                   only the *source* of movement differs) ── */
             allFinished = 1;
             for (int i = 0; i < numTravelers; i++) {
-                if (!states[i].isFinished) {
-                    allFinished = 0;
-                    if (states[i].isActive) {
-                        int from = states[i].currentNode;
-                        int to = states[i].nextNode;
-                        int w = findEdgeWeight(graph, from, to);
-                        
+                if (states[i].isFinished) continue;
+                allFinished = 0;
+
+                if (milestone == 4) {
+                    /* Parent drives the animation using pre-computed path[] */
+                    if (states[i].animState == ANIM_MOVING && states[i].pathLen > 1) {
+                        int from = states[i].path[states[i].edgeIdx];
+                        int to   = states[i].path[states[i].edgeIdx + 1];
+                        int w    = findEdgeWeight(graph, from, to);
+
                         states[i].timer += dt;
-                        float jumpProg = states[i].timer / JUMP_DURATION;
-                        if (jumpProg > 1.0f) jumpProg = 1.0f;
-                        float edgeT = ((float)states[i].subJump + jumpProg) / (float)w;
-                        states[i].entPos = lerpV2(positions[from], positions[to], edgeT);
+                        float jp = states[i].timer / JUMP_DURATION;
+                        if (jp > 1.0f) jp = 1.0f;
+                        states[i].entPos = lerpV2(positions[from], positions[to],
+                                                  ((float)states[i].subJump + jp) / (float)w);
 
                         if (states[i].timer >= JUMP_DURATION) {
                             states[i].timer -= JUMP_DURATION;
                             states[i].subJump++;
+                            if (states[i].subJump >= w) {
+                                states[i].subJump    = 0;
+                                states[i].edgeIdx++;
+                                states[i].currentNode = states[i].path[states[i].edgeIdx];
+                                states[i].entPos      = positions[states[i].currentNode];
+                                if (states[i].edgeIdx >= states[i].pathLen - 1) {
+                                    states[i].animState  = ANIM_DONE;
+                                    states[i].isFinished = 1;
+                                    kill(states[i].pid, SIGTERM);
+                                } else {
+                                    states[i].animState = ANIM_PAUSING;
+                                    states[i].timer     = 0.0f;
+                                }
+                            }
+                        }
+                    } else if (states[i].animState == ANIM_PAUSING) {
+                        states[i].timer += dt;
+                        if (states[i].timer >= NODE_PAUSE) {
+                            states[i].timer     = 0.0f;
+                            states[i].animState = ANIM_MOVING;
+                        }
+                    }
+                } else {
+                    /* Milestone 5: interpolate between currentNode and nextNode
+                       while waiting for the next IPC update from the child */
+                    if (states[i].isActive) {
+                        int from = states[i].currentNode;
+                        int to   = states[i].nextNode;
+                        int w    = findEdgeWeight(graph, from, to);
+
+                        states[i].timer += dt;
+                        float jp = states[i].timer / JUMP_DURATION;
+                        if (jp > 1.0f) jp = 1.0f;
+                        
+                        float edgeT = ((float)states[i].subJump + jp) / (float)w;
+                        if (edgeT >= 1.0f) {
+                            states[i].currentNode = to;
+                            states[i].isActive    = 0;
+                            states[i].entPos      = positions[to];
+                        } else {
+                            states[i].entPos = lerpV2(positions[from], positions[to], edgeT);
+                            if (states[i].timer >= JUMP_DURATION) {
+                                states[i].timer -= JUMP_DURATION;
+                                states[i].subJump++;
+                            }
                         }
                     }
                 }
             }
         }
 
+        /* ── Drawing ── */
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        for (int i = 0; i < graph->numNodes; i++) {
-            Edge* currEdge = graph->nodes[i].edgeList;
-            while (currEdge != NULL) {
-                Vector2 startPos = positions[i];
-                Vector2 endPos   = positions[currEdge->dest];
+        drawGraph(graph, positions, NULL, 0);
 
-                DrawLineEx(startPos, endPos, 1.8f, LIGHTGRAY);
-                
-                float midX = (startPos.x + endPos.x) / 2.0f;
-                float midY = (startPos.y + endPos.y) / 2.0f;
-                DrawCircle((int)midX, (int)midY, 10, RAYWHITE);
-                DrawText(TextFormat("%d", currEdge->weight), (int)midX - 5, (int)midY - 5, 15, DARKBLUE);
-
-                float ang = atan2f(endPos.y - startPos.y, endPos.x - startPos.x);
-                float arrowDist = 22.0f;
-                DrawCircle(
-                    (int)(endPos.x - arrowDist * cosf(ang)),
-                    (int)(endPos.y - arrowDist * sinf(ang)),
-                    4, DARKGRAY
-                );
-                currEdge = currEdge->next;
-            }
-        }
-
-        for (int i = 0; i < graph->numNodes; i++) {
-            DrawCircleV(positions[i], 20, BLUE);
-            DrawCircleLines((int)positions[i].x, (int)positions[i].y, 20, DARKBLUE);
-            DrawText(TextFormat("%d", i),
-                     (int)positions[i].x - 5, (int)positions[i].y - 8, 16, WHITE);
-        }
-
+        // Travelers
         for (int i = 0; i < numTravelers; i++) {
-            if (!states[i].isFinished) {
-                DrawCircleV(states[i].entPos, 12, states[i].color);
-                DrawCircleLines((int)states[i].entPos.x, (int)states[i].entPos.y, 12, DARKGRAY);
-            } else {
-                DrawCircleV(states[i].entPos, 12, Fade(states[i].color, 0.5f));
-            }
+            Color c = states[i].isFinished ? Fade(states[i].color, 0.5f) : states[i].color;
+            DrawCircleV(states[i].entPos, 12, c);
+            DrawCircleLines((int)states[i].entPos.x, (int)states[i].entPos.y, 12, DARKGRAY);
         }
 
-        Color btnColor = playing ? RED : GREEN;
-        if (allFinished) btnColor = DARKBLUE;
+        // Button
+        Color btnColor = allFinished ? DARKBLUE : (playing ? RED : GREEN);
         DrawRectangleRec(btn, btnColor);
         DrawRectangleLinesEx(btn, 2, DARKGRAY);
-
         const char* btnLabel = allFinished ? "DONE" : (playing ? "STOP" : "PLAY");
         int bw = MeasureText(btnLabel, 18);
         DrawText(btnLabel,
                  (int)(btn.x + (btn.width  - bw) / 2),
-                 (int)(btn.y + (btn.height - 18) / 2),
-                 18, WHITE);
+                 (int)(btn.y + (btn.height - 18) / 2), 18, WHITE);
 
-        DrawText("OS Graph Motion Sim - Milestone 5", 20, 15, 18, DARKGRAY);
+        DrawText(milestone == 4
+                     ? "OS Graph Motion Sim - Milestone 4"
+                     : "OS Graph Motion Sim - Milestone 5",
+                 20, 15, 18, DARKGRAY);
 
         EndDrawing();
     }
