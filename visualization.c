@@ -197,9 +197,13 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
         float dt = GetFrameTime();
 
         /* ── Button ── */
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !allFinished) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             Vector2 mouse = GetMousePosition();
             if (CheckCollisionPointRec(mouse, btn)) {
+                if (allFinished) {
+                    break; // לחיצה על כפתור DONE סוגרת את החלון בצורה חלקה!
+                }
+
                 playing = !playing;
                 // Milestone 4: activate travelers on first PLAY
                 if (milestone == 4 && playing) {
@@ -245,8 +249,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                 }
             }
 
-            /* ── Animation update (both milestones share the same drawing;
-                   only the *source* of movement differs) ── */
+            /* ── Animation update (both milestones share the same drawing) ── */
             allFinished = 1;
             for (int i = 0; i < numTravelers; i++) {
                 if (states[i].isFinished) continue;
@@ -291,8 +294,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         }
                     }
                 } else {
-                    /* Milestone 5: interpolate between currentNode and nextNode
-                       while waiting for the next IPC update from the child */
+                    /* Milestone 5: interpolate between currentNode and nextNode */
                     if (states[i].isActive) {
                         int from = states[i].currentNode;
                         int to   = states[i].nextNode;
