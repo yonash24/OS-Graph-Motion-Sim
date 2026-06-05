@@ -25,7 +25,11 @@ milestone4: $(SRC)
 milestone5: $(SRC)
 	$(CC) $(CFLAGS) -DMILESTONE=5 $(SRC) -o sim $(LDFLAGS)
 
-all: milestone5
+# Milestone 6 – Autonomous children with Node Access Synchronization
+milestone6: $(SRC)
+	$(CC) $(CFLAGS) -DMILESTONE=6 $(SRC) -o sim $(LDFLAGS)
+
+all: milestone6
 
 clean:
 	rm -f dijkstra sim *.o

@@ -12,6 +12,7 @@ make milestone2    # Builds the ./sim executable
 make milestone3    # Builds the ./sim executable
 make milestone4    # Builds the ./sim executable for Milestone 4
 make milestone5    # Builds the ./sim executable for Milestone 5
+make milestone6    # Builds the ./sim executable for Milestone 6
 make clean         # Removes all compiled binaries and object files
 ```
 
@@ -39,6 +40,7 @@ The program reads graph data from a text file (e.g., data.txt):
 - **Milestone 3:** Animation and Motion Logic (Movement Speed: 300ms per edge weight unit, Intermediate Stops: 1 second).
 - **Milestone 4:** Multiple Processes. The parent process calculates all paths, forks multiple child processes (one for each traveler), and manages the concurrent GUI display where each traveler has a unique color.
 - **Milestone 5:** IPC Communication. The child processes are fully autonomous and calculate their own Dijkstra paths. They report their status to the parent process using IPC.
+- **Milestone 6:** Node Synchronization (Critical Sections). Ensures mutual exclusion inside nodes. When multiple travelers reach the same node simultaneously, only one may enter, while the others wait outside.
 
 ### IPC Method Selection (Milestone 5)
 For inter-process communication between the parent and the children, we chose to use **Pipes (`pipe()`)**.
@@ -47,3 +49,14 @@ For inter-process communication between the parent and the children, we chose to
 2. **Simplicity:** Pipes do not require complex synchronization mechanisms (like semaphores or mutexes) compared to Shared Memory (`shmget`).
 3. **Non-blocking I/O:** By setting the read-end of the pipe to non-blocking mode (`O_NONBLOCK`), the parent process can continuously run the Raylib GUI loop at 60 FPS without hanging while waiting for updates from the children.
 
+### Synchronization Mechanism Selection (Milestone 6)
+To enforce node capacity constraints and solve race conditions between completely independent processes, we chose to implement Process-Shared Anonymous Semaphores combined with Shared Memory (mmap).
+**Reasoning:**
+
+1. **True Cross-Process Mutex:** Standard POSIX Mutexes are designed for threads within the same memory space. By storing POSIX anonymous semaphores (sem_t) inside an actual shared memory segment mapped via mmap(..., MAP_SHARED | MAP_ANONYMOUS, -1, 0), all independent child processes can access the exact same lock structure.
+
+Built-in Kernel Queue Management: Each node's semaphore is initialized using sem_init(&sem, 1, 1). Setting the second parameter (pshared) to 1 explicitly instructs the OS kernel to manage an atomic, block-and-wait queue for separate process IDs (PIDs).
+
+Deadlock & Race Avoidance: To prevent visual state desynchronization in the GUI, child processes post their STATUS_DRIVING message to the pipe before calling sem_post(). This guarantees that the parent registers a traveler's departure before the next waiting process unblocks and occupies the node.
+
+Visual Feedback: When a traveler is blocked, the GUI dynamically calculates a push-back vector on the incoming edge, preventing overlapping animations and rendering an active flashing state with the serial traveler number and system PID: T_ (PID:____) WAIT.

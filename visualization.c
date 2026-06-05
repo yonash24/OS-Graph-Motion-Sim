@@ -165,21 +165,21 @@ void visualizeGraph(void* g_ptr, int* path, int pathLen,
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Milestones 4 & 5: multi-traveler
-   pipe_fd == -1  → Milestone 4 (parent-driven from path[])
-   pipe_fd >= 0   → Milestone 5 (IPC-driven via pipe)
+   Milestones 4, 5 & 6: multi-traveler
    ═══════════════════════════════════════════════════════════ */
 
 void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                              int numTravelers, int pipe_fd) {
     Graph* graph = (Graph*)g_ptr;
     const int SCR_W = 800, SCR_H = 600;
-    int milestone = (pipe_fd == -1) ? 4 : 5;
 
-    InitWindow(SCR_W, SCR_H,
-               milestone == 4
-                   ? "OS Graph Motion Sim - Milestone 4"
-                   : "OS Graph Motion Sim - Milestone 5");
+#ifndef MILESTONE
+    int milestone = 6;
+#else
+    int milestone = MILESTONE;
+#endif
+
+    InitWindow(SCR_W, SCR_H, TextFormat("OS Graph Motion Sim - Milestone %d", milestone));
     SetTargetFPS(60);
 
     Vector2* positions = buildPositions(graph, SCR_W, SCR_H);
@@ -188,24 +188,21 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
     for (int i = 0; i < numTravelers; i++)
         states[i].entPos = positions[states[i].currentNode];
 
-    // Milestone 5 auto-starts; Milestone 4 waits for PLAY button
-    int playing     = (milestone == 5) ? 1 : 0;
+    int playing     = (milestone >= 5) ? 1 : 0;
     int allFinished = 0;
     Rectangle btn   = { 20, SCR_H - 50, 120, 32 };
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
-        /* ── Button ── */
+        /* ── Button Control ── */
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             Vector2 mouse = GetMousePosition();
             if (CheckCollisionPointRec(mouse, btn)) {
                 if (allFinished) {
-                    break; // לחיצה על כפתור DONE סוגרת את החלון בצורה חלקה!
+                    break; // Smooth GUI exit when simulation is DONE
                 }
-
                 playing = !playing;
-                // Milestone 4: activate travelers on first PLAY
                 if (milestone == 4 && playing) {
                     for (int i = 0; i < numTravelers; i++)
                         if (states[i].animState == ANIM_IDLE && states[i].pathLen > 1) {
@@ -217,46 +214,67 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
         }
 
         if (playing) {
-            /* ── Milestone 5: read IPC messages from pipe ── */
-            if (milestone == 5) {
+            /* ── Read IPC Messages from Pipe (Milestones 5 & 6) ── */
+            if (milestone >= 5) {
                 IPC_Message msg;
                 while (read(pipe_fd, &msg, sizeof(msg)) == (ssize_t)sizeof(IPC_Message)) {
                     for (int i = 0; i < numTravelers; i++) {
                         if (states[i].pid != msg.child_pid) continue;
-                        if (msg.is_destination) {
+
+                        if (msg.status == STATUS_ARRIVED_DEST) {
                             states[i].isFinished  = 1;
                             states[i].isActive    = 0;
                             states[i].animState   = ANIM_DONE;
                             states[i].currentNode = msg.current_node;
                             states[i].entPos      = positions[msg.current_node];
-                            printf("[PID=%d] arrived at node %d | DESTINATION\n",
-                                   msg.child_pid, msg.current_node);
+                            printf("[PID=%d] arrived at node %d | DESTINATION\n", msg.child_pid, msg.current_node);
                             fflush(stdout);
-                        } else {
+                        }
+                        else if (msg.status == STATUS_WAITING_FOR_NODE) {
+                            states[i].currentNode = msg.current_node;
+                            states[i].nextNode    = msg.next_node;
+                            states[i].isActive    = 0;
+                            states[i].animState   = ANIM_WAITING;
+                            states[i].entPos      = positions[msg.current_node];
+                            printf("[PID=%d] waiting outside node %d\n", msg.child_pid, msg.current_node);
+                            fflush(stdout);
+                        }
+                        else if (msg.status == STATUS_INSIDE_NODE) {
+                            for (int j = 0; j < numTravelers; j++) {
+                                if (states[j].nextNode == msg.current_node && states[j].animState == ANIM_PAUSING) {
+                                    states[j].animState = ANIM_MOVING;
+                                    states[j].isActive = 1;
+                                }
+                            }
+
+                            states[i].currentNode = msg.current_node;
+                            states[i].nextNode    = msg.next_node;
+                            states[i].isActive    = 0;
+                            states[i].animState   = ANIM_PAUSING;
+                            states[i].entPos      = positions[msg.current_node];
+                            printf("[PID=%d] arrived at node %d | next node: %d\n", msg.child_pid, msg.current_node, msg.next_node);
+                            fflush(stdout);
+                        }
+                        else if (msg.status == STATUS_DRIVING) {
                             states[i].currentNode = msg.current_node;
                             states[i].nextNode    = msg.next_node;
                             states[i].isActive    = 1;
                             states[i].animState   = ANIM_MOVING;
                             states[i].timer       = 0.0f;
                             states[i].subJump     = 0;
-                            states[i].entPos      = positions[msg.current_node];
-                            printf("[PID=%d] arrived at node %d | next node: %d\n",
-                                   msg.child_pid, msg.current_node, msg.next_node);
-                            fflush(stdout);
                         }
                         break;
                     }
                 }
             }
 
-            /* ── Animation update (both milestones share the same drawing) ── */
+            /* ── Animation Update Loop ── */
             allFinished = 1;
             for (int i = 0; i < numTravelers; i++) {
                 if (states[i].isFinished) continue;
                 allFinished = 0;
 
                 if (milestone == 4) {
-                    /* Parent drives the animation using pre-computed path[] */
                     if (states[i].animState == ANIM_MOVING && states[i].pathLen > 1) {
                         int from = states[i].path[states[i].edgeIdx];
                         int to   = states[i].path[states[i].edgeIdx + 1];
@@ -265,14 +283,13 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         states[i].timer += dt;
                         float jp = states[i].timer / JUMP_DURATION;
                         if (jp > 1.0f) jp = 1.0f;
-                        states[i].entPos = lerpV2(positions[from], positions[to],
-                                                  ((float)states[i].subJump + jp) / (float)w);
+                        states[i].entPos = lerpV2(positions[from], positions[to], ((float)states[i].subJump + jp) / (float)w);
 
                         if (states[i].timer >= JUMP_DURATION) {
                             states[i].timer -= JUMP_DURATION;
                             states[i].subJump++;
                             if (states[i].subJump >= w) {
-                                states[i].subJump    = 0;
+                                states[i].subJump     = 0;
                                 states[i].edgeIdx++;
                                 states[i].currentNode = states[i].path[states[i].edgeIdx];
                                 states[i].entPos      = positions[states[i].currentNode];
@@ -294,8 +311,8 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         }
                     }
                 } else {
-                    /* Milestone 5: interpolate between currentNode and nextNode */
-                    if (states[i].isActive) {
+                    // Milestones 5 & 6 interpolation
+                    if (states[i].isActive && states[i].animState == ANIM_MOVING) {
                         int from = states[i].currentNode;
                         int to   = states[i].nextNode;
                         int w    = findEdgeWeight(graph, from, to);
@@ -303,7 +320,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         states[i].timer += dt;
                         float jp = states[i].timer / JUMP_DURATION;
                         if (jp > 1.0f) jp = 1.0f;
-                        
+
                         float edgeT = ((float)states[i].subJump + jp) / (float)w;
                         if (edgeT >= 1.0f) {
                             states[i].currentNode = to;
@@ -321,33 +338,59 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
             }
         }
 
-        /* ── Drawing ── */
+        /* ── Drawing Screen ── */
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
         drawGraph(graph, positions, NULL, 0);
 
-        // Travelers
+        // Draw Travelers
         for (int i = 0; i < numTravelers; i++) {
-            Color c = states[i].isFinished ? Fade(states[i].color, 0.5f) : states[i].color;
-            DrawCircleV(states[i].entPos, 12, c);
-            DrawCircleLines((int)states[i].entPos.x, (int)states[i].entPos.y, 12, DARKGRAY);
+            Color c = states[i].color;
+            Vector2 drawPos = states[i].entPos;
+
+            if (states[i].isFinished) {
+                c = Fade(states[i].color, 0.4f);
+            }
+            else if (states[i].animState == ANIM_WAITING) {
+                c = ((int)(GetTime() * 4) % 2 == 0) ? GOLD : ORANGE;
+
+                int from = states[i].currentNode;
+                int to   = states[i].nextNode;
+
+                Vector2 dir = { positions[from].x - positions[to].x, positions[from].y - positions[to].y };
+                float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
+                if (len > 0) {
+                    dir.x /= len;
+                    dir.y /= len;
+                    drawPos.x = positions[to].x + dir.x * 35.0f;
+                    drawPos.y = positions[to].y + dir.y * 35.0f;
+                }
+            }
+
+            DrawCircleV(drawPos, 12, c);
+            DrawCircleLines((int)drawPos.x, (int)drawPos.y, 12, DARKGRAY);
+
+            // כתיבת מספר הנוסע וה-PID מעל הראש בזמן חסימה
+            if (states[i].animState == ANIM_WAITING) {
+                const char* waitText = TextFormat("T%d (PID:%d) WAIT", i + 1, states[i].pid);
+                int textW = MeasureText(waitText, 11);
+
+                DrawRectangle((int)drawPos.x - textW/2 - 4, (int)drawPos.y - 26, textW + 8, 14, Fade(RAYWHITE, 0.85f));
+                DrawRectangleLines((int)drawPos.x - textW/2 - 4, (int)drawPos.y - 26, textW + 8, 14, MAROON);
+                DrawText(waitText, (int)drawPos.x - textW/2, (int)drawPos.y - 24, 11, MAROON);
+            }
         }
 
-        // Button
+        // Action Button Display
         Color btnColor = allFinished ? DARKBLUE : (playing ? RED : GREEN);
         DrawRectangleRec(btn, btnColor);
         DrawRectangleLinesEx(btn, 2, DARKGRAY);
         const char* btnLabel = allFinished ? "DONE" : (playing ? "STOP" : "PLAY");
         int bw = MeasureText(btnLabel, 18);
-        DrawText(btnLabel,
-                 (int)(btn.x + (btn.width  - bw) / 2),
-                 (int)(btn.y + (btn.height - 18) / 2), 18, WHITE);
+        DrawText(btnLabel, (int)(btn.x + (btn.width - bw) / 2), (int)(btn.y + (btn.height - 18) / 2), 18, WHITE);
 
-        DrawText(milestone == 4
-                     ? "OS Graph Motion Sim - Milestone 4"
-                     : "OS Graph Motion Sim - Milestone 5",
-                 20, 15, 18, DARKGRAY);
+        DrawText(TextFormat("OS Graph Motion Sim - Milestone %d", milestone), 20, 15, 18, DARKGRAY);
 
         EndDrawing();
     }
