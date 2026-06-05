@@ -55,8 +55,8 @@ To enforce node capacity constraints and solve race conditions between completel
 
 1. **True Cross-Process Mutex:** Standard POSIX Mutexes are designed for threads within the same memory space. By storing POSIX anonymous semaphores (sem_t) inside an actual shared memory segment mapped via mmap(..., MAP_SHARED | MAP_ANONYMOUS, -1, 0), all independent child processes can access the exact same lock structure.
 
-Built-in Kernel Queue Management: Each node's semaphore is initialized using sem_init(&sem, 1, 1). Setting the second parameter (pshared) to 1 explicitly instructs the OS kernel to manage an atomic, block-and-wait queue for separate process IDs (PIDs).
+2. **Built-in Kernel Queue Management:** Each node's semaphore is initialized using sem_init(&sem, 1, 1). Setting the second parameter (pshared) to 1 explicitly instructs the OS kernel to manage an atomic, block-and-wait queue for separate process IDs (PIDs).
 
-Deadlock & Race Avoidance: To prevent visual state desynchronization in the GUI, child processes post their STATUS_DRIVING message to the pipe before calling sem_post(). This guarantees that the parent registers a traveler's departure before the next waiting process unblocks and occupies the node.
+3. **Deadlock & Race Avoidance:** To prevent visual state desynchronization in the GUI, child processes post their STATUS_DRIVING message to the pipe before calling sem_post(). This guarantees that the parent registers a traveler's departure before the next waiting process unblocks and occupies the node.
 
-Visual Feedback: When a traveler is blocked, the GUI dynamically calculates a push-back vector on the incoming edge, preventing overlapping animations and rendering an active flashing state with the serial traveler number and system PID: T_ (PID:____) WAIT.
+4. **Visual Feedback:** When a traveler is blocked, the GUI dynamically calculates a push-back vector on the incoming edge, preventing overlapping animations and rendering an active flashing state with the serial traveler number and system PID: T_ (PID:____) WAIT.
