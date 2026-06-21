@@ -1,10 +1,8 @@
 #include "dijkstra.h"
 
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════
+   [M1] loadGraph — קריאת גרף + מקור/יעד (milestones 1-3)
+   ═══════════════════════════════════════════════════════════ */
 
 int loadGraph(const char* filename, Graph* graph, int* startNode, int* endNode) {
     FILE *file = fopen(filename, "r");
@@ -78,6 +76,10 @@ int loadGraph(const char* filename, Graph* graph, int* startNode, int* endNode) 
     return 1; // הצלחה
 }
 
+/* ═══════════════════════════════════════════════════════════
+   [M4+] loadGraphAndTravelers — גרף + רשימת נוסעים
+   ═══════════════════════════════════════════════════════════ */
+
 int loadGraphAndTravelers(const char* filename, Graph* graph, Traveler** outTravelers, int* outNumTravelers) {
     FILE *file = fopen(filename, "r");
     if (!file) return 0;
@@ -122,7 +124,7 @@ int loadGraphAndTravelers(const char* filename, Graph* graph, Traveler** outTrav
     if (numTravelers <= 0) {
         freeGraph(graph);
         fclose(file);
-        return 0; 
+        return 0;
     }
 
     *outNumTravelers = numTravelers;
@@ -131,10 +133,12 @@ int loadGraphAndTravelers(const char* filename, Graph* graph, Traveler** outTrav
     int travRead = 0;
     while (travRead < numTravelers && fgets(line, sizeof(line), file)) {
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        int start, end;
-        if (sscanf(line, "%d %d", &start, &end) == 2) {
+        int start, end, priority = 0;
+        int parsed = sscanf(line, "%d %d %d", &start, &end, &priority);
+        if (parsed >= 2) {
             (*outTravelers)[travRead].startNode = start;
             (*outTravelers)[travRead].endNode = end;
+            (*outTravelers)[travRead].priority = (parsed >= 3) ? priority : 0;
             travRead++;
         }
     }
@@ -144,6 +148,11 @@ int loadGraphAndTravelers(const char* filename, Graph* graph, Traveler** outTrav
 }
 
 
+
+/* ═══════════════════════════════════════════════════════════
+   [M1] runDijkstra — אלגוריתם + הדפסה (M1 בלבד)
+   [M4+] אותה פונקציה, בלי הדפסה (MILESTONE >= 4)
+   ═══════════════════════════════════════════════════════════ */
 
 void runDijkstra(Graph* graph, int startNode, int endNode, int* outPath, int* outLen) {
     int n = graph->numNodes;

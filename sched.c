@@ -3,13 +3,19 @@
 #include <stdio.h>
 #include <time.h>
 
+/* ═══════════════════════════════════════════════════════════
+   [M7] sched.c — תור המתנה לכל צומת, FCFS / SJF
+   pick_next()  — בוחר מי הבא בתור
+   try_admit()  — משחרר sem_post לנוסע שנבחר
+   ═══════════════════════════════════════════════════════════ */
+
 static long now_us(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000000L + ts.tv_nsec / 1000L;
 }
 
-static int pick_next(const Scheduler* s, int node) {
+static int pick_next(const Scheduler* s, int node) {  /* [M7] FCFS / SJF */
     int len = s->queue_len[node];
     if (len <= 0) return -1;
 
@@ -20,7 +26,9 @@ static int pick_next(const Scheduler* s, int node) {
 
         if (s->policy == SCHED_SJF) {
             if (b->remaining_cost < a->remaining_cost ||
-                (b->remaining_cost == a->remaining_cost && b->arrival_us < a->arrival_us)) {
+                (b->remaining_cost == a->remaining_cost && b->priority < a->priority) ||
+                (b->remaining_cost == a->remaining_cost && b->priority == a->priority &&
+                 b->arrival_us < a->arrival_us)) {
                 best = i;
             }
         } else {
@@ -44,8 +52,9 @@ static void try_admit(Scheduler* s, int node) {
 
     s->node_busy[node] = 1;
 
-    printf("[Scheduler/%s] granted node %d to PID=%d (remaining=%d)\n",
-           sched_policy_name(s->policy), node, (int)chosen.pid, chosen.remaining_cost);
+    printf("[Scheduler/%s] granted node %d to PID=%d (remaining=%d, priority=%d)\n",
+           sched_policy_name(s->policy), node, (int)chosen.pid,
+           chosen.remaining_cost, chosen.priority);
     fflush(stdout);
 
     sem_post(&s->grant_sems[chosen.traveler_idx]);
@@ -62,7 +71,7 @@ void scheduler_init(Scheduler* s, SchedPolicy policy, int num_nodes, sem_t* gran
 }
 
 void scheduler_on_request(Scheduler* s, int node, pid_t pid, int traveler_idx,
-                          int remaining_cost) {
+                          int remaining_cost, int priority) {
     if (node < 0 || node >= s->num_nodes) return;
     if (s->queue_len[node] >= SCHED_MAX_TRAVELERS) return;
 
@@ -70,10 +79,11 @@ void scheduler_on_request(Scheduler* s, int node, pid_t pid, int traveler_idx,
     e->pid = pid;
     e->traveler_idx = traveler_idx;
     e->remaining_cost = remaining_cost;
+    e->priority = priority;
     e->arrival_us = now_us();
 
-    printf("[Scheduler/%s] PID=%d queued for node %d (remaining=%d, queue=%d)\n",
-           sched_policy_name(s->policy), (int)pid, node, remaining_cost,
+    printf("[Scheduler/%s] PID=%d queued for node %d (remaining=%d, priority=%d, queue=%d)\n",
+           sched_policy_name(s->policy), (int)pid, node, remaining_cost, priority,
            s->queue_len[node]);
     fflush(stdout);
 

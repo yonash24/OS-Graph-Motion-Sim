@@ -30,9 +30,10 @@ Run the executables by providing the input file as an argument:
 The program reads graph data from a text file (e.g., data.txt):
 - Line 1: N (nodes) and M (edges).
 - M lines: source, destination, and weight for each edge.
-- For milestones 4-5, the file also includes a `# travelers` section:
+- For milestones 4–7, the file also includes a `# travelers` section:
   - Line: number of travelers
-  - Following lines: startNode and endNode for each traveler.
+  - Following lines: `startNode endNode [priority]` for each traveler.
+  - **priority** (optional, Milestone 7): integer from the input file; **lower value = higher priority**. Defaults to `0` if omitted. Used as a tie-breaker when two travelers have the same remaining path weight under SJF.
 
 ## Implementation Details
 
@@ -50,7 +51,7 @@ When several travelers wait outside the same node, the **parent process** manage
 | Algorithm | Selection rule |
 |-----------|----------------|
 | **FCFS** | First traveler that requested the node |
-| **SJF** | Traveler with the smallest **remaining path weight** (sum of edge weights left to destination) |
+| **SJF** | Traveler with the smallest **remaining path weight** (sum of edge weights left to destination); ties broken by **priority** (lower = higher), then FCFS |
 
 The choice is made at runtime:
 ```bash
@@ -58,7 +59,7 @@ The choice is made at runtime:
 ./sim -schd sjf  data_m7.txt   # demo: SJF (different remaining path weights)
 ```
 
-**How it works:** each child sends `STATUS_SCHEDULE_REQUEST` and blocks on a personal grant semaphore. The parent enqueues the request and calls `sem_post` only for the traveler selected by FCFS or SJF when the node is free.
+**How it works:** each child sends `STATUS_SCHEDULE_REQUEST` (with `remaining_cost` and `priority` from the input file) and blocks on a personal grant semaphore. The parent enqueues the request and calls `sem_post` only for the traveler selected by FCFS or SJF when the node is free.
 
 **Demo input files:**
 
@@ -66,6 +67,20 @@ The choice is made at runtime:
 |------|-----------|-----|
 | `data_m5.txt` | **FCFS** | Different edge weights **to** node 3 → travelers arrive at different times (2→3 weight 2, 4→3 weight 5, 0→3 weight 8). FCFS entry order at node 3: **2 → 4 → 0**. |
 | `data_m7.txt` | **SJF** | Same arrival time (all weight 2 to node 3), but **different remaining weights after** node 3. SJF entry order: **2→4** (remaining 2), **4→1** (4), **0→5** (8). |
+
+### FCFS vs SJF — waiting time at node 3
+
+Each traveler spends **~1 second inside** the node before driving out. Waiting time is measured from `STATUS_WAITING_FOR_NODE` until the scheduler grants entry (`[Scheduler/...] granted node 3`).
+
+| Traveler | FCFS (`data_m5.txt`) | SJF (`data_m7.txt`) |
+|----------|----------------------|---------------------|
+| From node **2** → 1 | Arrives **first** → ~**0 s** wait | Remaining path **2** → served **1st** → ~**0 s** wait |
+| From node **4** → 1 | Arrives **second** → ~**1 s** wait | Remaining path **4** → served **2nd** → ~**1 s** wait |
+| From node **0** → 1 | Arrives **last** → ~**2 s** wait | Remaining path **8** → served **3rd** → ~**2 s** wait |
+
+**Why the numbers differ between algorithms:** under FCFS, order follows **arrival time** at the node (driven by different edge weights in `data_m5.txt`). Under SJF, all three reach node 3 at nearly the same time, but the scheduler picks by **remaining path weight** — so the traveler heading to node 4 (shortest remaining route) enters first even though it started at node 2.
+
+If two travelers have the **same** remaining weight, SJF uses **priority** from the input file (lower number wins), then FCFS by request time.
 
 Compare the `[Scheduler/...] granted node 3` lines in the terminal for each run.
 

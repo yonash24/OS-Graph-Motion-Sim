@@ -1,6 +1,8 @@
 #define _DEFAULT_SOURCE
 #include "main.h"
+#include "sched.h"
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -13,8 +15,9 @@
 #define MILESTONE 6
 #endif
 
-#include <string.h>
-
+/* ═══════════════════════════════════════════════════════════
+   [M7] parseM7Args — parsing: ./sim -schd fcfs|sjf <file>
+   ═══════════════════════════════════════════════════════════ */
 #if MILESTONE == 7
 static int parseM7Args(int argc, char** argv, SchedPolicy* policy, const char** file) {
     if (argc != 4) return 0;
@@ -28,7 +31,7 @@ static int parseM7Args(int argc, char** argv, SchedPolicy* policy, const char** 
 #endif
 
 /* ═══════════════════════════════════════════════════════════
-   Milestone 5, 6 & 7: child process runs Dijkstra autonomously
+   [M5-M7] childComputePath — Dijkstra אוטונומי בילד
    ═══════════════════════════════════════════════════════════ */
 #if MILESTONE == 5 || MILESTONE == 6 || MILESTONE == 7
 
@@ -38,6 +41,7 @@ static int* childComputePath(Graph* graph, int startNode, int endNode, int* outL
     return outPath;
 }
 
+/* ── [M5] childProcess — IPC בלבד, בלי סנכרון צמתים ── */
 #if MILESTONE == 5
 static void childProcess(Graph* graph, int startNode, int endNode,
                          int pipe_write_fd) {
@@ -45,7 +49,7 @@ static void childProcess(Graph* graph, int startNode, int endNode,
     int* outPath = childComputePath(graph, startNode, endNode, &outLen);
 
     if (outLen == 0) {
-        IPC_Message msg = { getpid(), startNode, -1, STATUS_ARRIVED_DEST, 0 };
+        IPC_Message msg = { getpid(), startNode, -1, STATUS_ARRIVED_DEST, 0, 0 };
         write(pipe_write_fd, &msg, sizeof(msg));
         free(outPath);
         exit(0);
@@ -56,12 +60,12 @@ static void childProcess(Graph* graph, int startNode, int endNode,
         int next = (i < outLen - 1) ? outPath[i + 1] : -1;
 
         IPC_Message msg = { getpid(), curr, next,
-                            (next == -1) ? STATUS_ARRIVED_DEST : STATUS_INSIDE_NODE, 0 };
+                            (next == -1) ? STATUS_ARRIVED_DEST : STATUS_INSIDE_NODE, 0, 0 };
         write(pipe_write_fd, &msg, sizeof(msg));
 
         if (next != -1) {
             if (i > 0) sleep(1);
-            IPC_Message msg_drive = { getpid(), curr, next, STATUS_DRIVING, 0 };
+            IPC_Message msg_drive = { getpid(), curr, next, STATUS_DRIVING, 0, 0 };
             write(pipe_write_fd, &msg_drive, sizeof(msg_drive));
             usleep(5000);
 
@@ -73,8 +77,9 @@ static void childProcess(Graph* graph, int startNode, int endNode,
     free(outPath);
     exit(0);
 }
-#endif /* MILESTONE == 5 */
+#endif /* [M5] */
 
+/* ── [M6] childProcess — sem_wait/post על node_sems (mmap) ── */
 #if MILESTONE == 6
 static void childProcess(Graph* graph, int startNode, int endNode,
                          int pipe_write_fd, sem_t* node_sems) {
@@ -82,7 +87,7 @@ static void childProcess(Graph* graph, int startNode, int endNode,
     int* outPath = childComputePath(graph, startNode, endNode, &outLen);
 
     if (outLen == 0) {
-        IPC_Message msg = { getpid(), startNode, -1, STATUS_ARRIVED_DEST, 0 };
+        IPC_Message msg = { getpid(), startNode, -1, STATUS_ARRIVED_DEST, 0, 0 };
         write(pipe_write_fd, &msg, sizeof(msg));
         free(outPath);
         exit(0);
@@ -94,7 +99,7 @@ static void childProcess(Graph* graph, int startNode, int endNode,
 
         if (i > 0) {
             int prev = outPath[i - 1];
-            IPC_Message msg_wait = { getpid(), prev, curr, STATUS_WAITING_FOR_NODE, 0 };
+            IPC_Message msg_wait = { getpid(), prev, curr, STATUS_WAITING_FOR_NODE, 0, 0 };
             write(pipe_write_fd, &msg_wait, sizeof(msg_wait));
             usleep(5000);
         }
@@ -103,13 +108,13 @@ static void childProcess(Graph* graph, int startNode, int endNode,
         sem_wait(sem);
 
         IPC_Message msg_inside = { getpid(), curr, next,
-                                   (next == -1) ? STATUS_ARRIVED_DEST : STATUS_INSIDE_NODE, 0 };
+                                   (next == -1) ? STATUS_ARRIVED_DEST : STATUS_INSIDE_NODE, 0, 0 };
         write(pipe_write_fd, &msg_inside, sizeof(msg_inside));
 
         sleep(1);
 
         if (next != -1) {
-            IPC_Message msg_drive = { getpid(), curr, next, STATUS_DRIVING, 0 };
+            IPC_Message msg_drive = { getpid(), curr, next, STATUS_DRIVING, 0, 0 };
             write(pipe_write_fd, &msg_drive, sizeof(msg_drive));
             usleep(5000);
         }
@@ -125,8 +130,9 @@ static void childProcess(Graph* graph, int startNode, int endNode,
     free(outPath);
     exit(0);
 }
-#endif /* MILESTONE == 6 */
+#endif /* [M6] */
 
+/* ── [M7] childProcess — SCHEDULE_REQUEST + grant_sems ── */
 #if MILESTONE == 7
 static int remainingPathWeight(Graph* graph, int* path, int pathLen, int fromIdx) {
     int total = 0;
@@ -136,12 +142,13 @@ static int remainingPathWeight(Graph* graph, int* path, int pathLen, int fromIdx
 }
 
 static void childProcess(Graph* graph, int startNode, int endNode,
-                         int pipe_write_fd, sem_t* grant_sems, int traveler_idx) {
+                         int pipe_write_fd, sem_t* grant_sems, int traveler_idx,
+                         int priority) {
     int outLen = 0;
     int* outPath = childComputePath(graph, startNode, endNode, &outLen);
 
     if (outLen == 0) {
-        IPC_Message msg = { getpid(), startNode, -1, STATUS_ARRIVED_DEST, 0 };
+        IPC_Message msg = { getpid(), startNode, -1, STATUS_ARRIVED_DEST, 0, priority };
         write(pipe_write_fd, &msg, sizeof(msg));
         free(outPath);
         exit(0);
@@ -154,26 +161,26 @@ static void childProcess(Graph* graph, int startNode, int endNode,
 
         if (i > 0) {
             int prev = outPath[i - 1];
-            IPC_Message msg_wait = { getpid(), prev, curr, STATUS_WAITING_FOR_NODE, remaining };
+            IPC_Message msg_wait = { getpid(), prev, curr, STATUS_WAITING_FOR_NODE, remaining, priority };
             write(pipe_write_fd, &msg_wait, sizeof(msg_wait));
             usleep(5000);
         }
 
         IPC_Message msg_req = { getpid(), (i > 0) ? outPath[i - 1] : curr, curr,
-                                STATUS_SCHEDULE_REQUEST, remaining };
+                                STATUS_SCHEDULE_REQUEST, remaining, priority };
         write(pipe_write_fd, &msg_req, sizeof(msg_req));
 
         sem_wait(&grant_sems[traveler_idx]);
 
         IPC_Message msg_inside = { getpid(), curr, next,
                                    (next == -1) ? STATUS_ARRIVED_DEST : STATUS_INSIDE_NODE,
-                                   remaining };
+                                   remaining, priority };
         write(pipe_write_fd, &msg_inside, sizeof(msg_inside));
 
         sleep(1);
 
         if (next != -1) {
-            IPC_Message msg_drive = { getpid(), curr, next, STATUS_DRIVING, remaining };
+            IPC_Message msg_drive = { getpid(), curr, next, STATUS_DRIVING, remaining, priority };
             write(pipe_write_fd, &msg_drive, sizeof(msg_drive));
             usleep(5000);
 
@@ -185,12 +192,12 @@ static void childProcess(Graph* graph, int startNode, int endNode,
     free(outPath);
     exit(0);
 }
-#endif /* MILESTONE == 7 */
+#endif /* [M7] */
 
-#endif /* MILESTONE 5 || 6 || 7 */
+#endif /* [M5-M7] child processes */
 
 /* ═══════════════════════════════════════════════════════════
-   main
+   [M1-M3] main — Dijkstra + (M2+) GUI
    ═══════════════════════════════════════════════════════════ */
 #if MILESTONE <= 3
 int main(int argc, char* argv[]) {
@@ -213,19 +220,19 @@ int main(int argc, char* argv[]) {
     runDijkstra(&graph, startNode, endNode, path, &pathLen);
 
 #if MILESTONE >= 2
-    visualizeGraph(&graph, path, pathLen, startNode, endNode);
+    visualizeGraph(&graph, path, pathLen, startNode, endNode);  /* [M2-M3] */
 #endif
 
     free(path);
     freeGraph(&graph);
     return 0;
 }
-#else /* MILESTONE >= 4 */
+#else /* [M4-M7] main — נוסעים מרובים + fork */
 int main(int argc, char* argv[]) {
     const char* input_file = NULL;
 #if MILESTONE == 7
     SchedPolicy policy = SCHED_FCFS;
-    if (!parseM7Args(argc, argv, &policy, &input_file)) {
+    if (!parseM7Args(argc, argv, &policy, &input_file)) {       /* [M7] */
         fprintf(stderr, "Usage: %s -schd fcfs|sjf <file_name>\n", argv[0]);
         return 1;
     }
@@ -253,9 +260,9 @@ int main(int argc, char* argv[]) {
     TravelerState* states =
         (TravelerState*)calloc(numTravelers, sizeof(TravelerState));
 
-/* ─────────────────────────────────────────────────────────
-   MILESTONE 4
-   ───────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   [M4] fork — האב מחשב מסלול, ילדים ב-pause()
+   ═══════════════════════════════════════════════════════════ */
 #if MILESTONE == 4
     for (int i = 0; i < numTravelers; i++) {
         int* path    = (int*)malloc(graph.numNodes * sizeof(int));
@@ -295,12 +302,13 @@ int main(int argc, char* argv[]) {
         free(states[i].path);
     }
 
-/* ─────────────────────────────────────────────────────────
-   MILESTONE 5, 6 & 7
-   ───────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   [M5-M7] pipe + fork + (M6) node_sems / (M7) grant_sems
+   ═══════════════════════════════════════════════════════════ */
 #else  /* MILESTONE == 5 || 6 || 7 */
 
 #if MILESTONE == 6
+    /* [M6] סמפורים משותפים — מנעול לכל צומת */
     sem_t* node_sems = (sem_t*)mmap(NULL, graph.numNodes * sizeof(sem_t),
                              PROT_READ | PROT_WRITE,
                              MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -319,6 +327,7 @@ int main(int argc, char* argv[]) {
 #endif
 
 #if MILESTONE == 7
+    /* [M7] סמפור grant לכל נוסע + Scheduler */
     sem_t* grant_sems = (sem_t*)mmap(NULL, (size_t)numTravelers * sizeof(sem_t),
                                      PROT_READ | PROT_WRITE,
                                      MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -338,10 +347,10 @@ int main(int argc, char* argv[]) {
 #endif
 
     int pipefd[2];
-    if (pipe(pipefd) == -1) { perror("pipe"); return 1; }
+    if (pipe(pipefd) == -1) { perror("pipe"); return 1; }  /* [M5-M7] IPC */
 
     for (int i = 0; i < numTravelers; i++) {
-        pid_t pid = fork();
+        pid_t pid = fork();                                 /* [M4-M7] */
         if (pid == -1) { perror("fork"); return 1; }
 
         if (pid == 0) {
@@ -354,7 +363,8 @@ int main(int argc, char* argv[]) {
                          travelers[i].endNode, pipefd[1], node_sems);
 #else
             childProcess(&graph, travelers[i].startNode,
-                         travelers[i].endNode, pipefd[1], grant_sems, i);
+                         travelers[i].endNode, pipefd[1], grant_sems, i,
+                         travelers[i].priority);
 #endif
         }
 
@@ -373,7 +383,7 @@ int main(int argc, char* argv[]) {
     close(pipefd[1]);   /* parent only reads */
 
     int flags = fcntl(pipefd[0], F_GETFL, 0);
-    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);           /* [M5-M7] */
 
 #if MILESTONE == 7
     visualizeMultiTravelers(&graph, states, numTravelers, pipefd[0], &sched);
@@ -383,7 +393,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < numTravelers; i++) {
         int status;
-        pid_t done = waitpid(states[i].pid, &status, 0);
+        pid_t done = waitpid(states[i].pid, &status, 0);  /* [M4-M7] */
         if (done > 0) printf("[PID=%d] finished\n", done);
     }
 
@@ -401,11 +411,11 @@ int main(int argc, char* argv[]) {
     munmap(grant_sems, (size_t)numTravelers * sizeof(sem_t));
 #endif
 
-#endif /* MILESTONE */
+#endif /* [M4] vs [M5-M7] */
 
     free(states);
     free(travelers);
     freeGraph(&graph);
     return 0;
 }
-#endif /* MILESTONE */
+#endif /* [M1-M3] vs [M4-M7] */

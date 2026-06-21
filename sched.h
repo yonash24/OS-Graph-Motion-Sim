@@ -1,6 +1,11 @@
 #ifndef SCHED_H
 #define SCHED_H
 
+/*
+ * [M7] תזמון כניסה לצומת — FCFS / SJF
+ *      נקרא מ-main.c (אתחול) ו-visualization.c (applyIPCMessage)
+ */
+
 #include <semaphore.h>
 #include <sys/types.h>
 
@@ -16,6 +21,7 @@ typedef struct {
     pid_t pid;
     int   traveler_idx;
     int   remaining_cost;
+    int   priority;
     long  arrival_us;
 } SchedWaitEntry;
 
@@ -30,7 +36,7 @@ typedef struct {
 
 void          scheduler_init(Scheduler* s, SchedPolicy policy, int num_nodes, sem_t* grant_sems);
 void          scheduler_on_request(Scheduler* s, int node, pid_t pid, int traveler_idx,
-                                   int remaining_cost);
+                                   int remaining_cost, int priority);
 void          scheduler_on_enter(Scheduler* s, int node);
 void          scheduler_on_leave(Scheduler* s, int node);
 const char*   sched_policy_name(SchedPolicy policy);

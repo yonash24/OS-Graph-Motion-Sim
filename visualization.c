@@ -1,5 +1,6 @@
 #define _DEFAULT_SOURCE
 #include "visualization.h"
+#include "sched.h"
 #include <signal.h>
 #include <string.h>
 
@@ -26,6 +27,7 @@ int isOnPath(int* path, int pathLen, int i, int dest) {
 
 #define NODE_OUTSIDE_OFFSET 48.0f
 
+/* ── [M6-M7] מיקום מחוץ לצומת (המתנה / סיום קשת) ── */
 static Vector2 outsideNodePos(Vector2* positions, int from, int to) {
     Vector2 dir = { positions[from].x - positions[to].x,
                     positions[from].y - positions[to].y };
@@ -43,6 +45,7 @@ static int isTravelerInsideNode(const TravelerState* s) {
     return 1;
 }
 
+/* ── [M5-M7] פיזור נוסעים בתוך צומת (זיהוי וизуלי) ── */
 static Vector2 spreadAtNode(Vector2 center, int slot, int total) {
     if (total <= 1) return center;
     float angle = (float)slot * (2.0f * PI / (float)total) - PI / 2.0f;
@@ -51,15 +54,19 @@ static Vector2 spreadAtNode(Vector2 center, int slot, int total) {
                         center.y + radius * sinf(angle) };
 }
 
+/* ═══════════════════════════════════════════════════════════
+   [M5-M7] applyIPCMessage / drainIPCPipe — קריאת pipe + עדכון GUI
+   [M7]    scheduler_on_request/enter/leave
+   ═══════════════════════════════════════════════════════════ */
 static void applyIPCMessage(const IPC_Message* msg, TravelerState* states,
                             int numTravelers, Vector2* positions, int milestone,
                             Scheduler* sched) {
     for (int i = 0; i < numTravelers; i++) {
         if (states[i].pid != msg->child_pid) continue;
 
-        if (msg->status == STATUS_SCHEDULE_REQUEST && sched) {
+        if (msg->status == STATUS_SCHEDULE_REQUEST && sched) {  /* [M7] */
             scheduler_on_request(sched, msg->next_node, msg->child_pid, i,
-                                 msg->remaining_cost);
+                                 msg->remaining_cost, msg->priority);
             break;
         }
         else if (msg->status == STATUS_ARRIVED_DEST) {
@@ -72,7 +79,7 @@ static void applyIPCMessage(const IPC_Message* msg, TravelerState* states,
             printf("[PID=%d] arrived at node %d | DESTINATION\n", msg->child_pid, msg->current_node);
             fflush(stdout);
         }
-        else if (msg->status == STATUS_WAITING_FOR_NODE && milestone >= 6) {
+        else if (msg->status == STATUS_WAITING_FOR_NODE && milestone >= 6) {  /* [M6-M7] */
             states[i].currentNode = msg->current_node;
             states[i].nextNode    = msg->next_node;
             states[i].isActive    = 0;
@@ -128,6 +135,7 @@ static void drainIPCPipe(int pipe_fd, TravelerState* states, int numTravelers,
         applyIPCMessage(&msg, states, numTravelers, positions, milestone, sched);
 }
 
+/* ── [M5-M7] STOP/PLAY — SIGSTOP/SIGCONT לילדים ── */
 static void setChildrenPaused(TravelerState* states, int numTravelers, int pause) {
     for (int i = 0; i < numTravelers; i++) {
         if (states[i].isFinished) continue;
@@ -135,7 +143,7 @@ static void setChildrenPaused(TravelerState* states, int numTravelers, int pause
     }
 }
 
-/* ── helper: compute node positions on a circle ──────────── */
+/* ── [M2+] buildPositions / drawGraph — ציור הגרף ── */
 
 static Vector2* buildPositions(Graph* graph, int SCR_W, int SCR_H) {
     Vector2* positions = (Vector2*)malloc(graph->numNodes * sizeof(Vector2));
@@ -187,7 +195,7 @@ static void drawGraph(Graph* graph, Vector2* positions,
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Milestone 1-3: single traveler
+   [M2-M3] visualizeGraph — נוסע בודד, PLAY/STOP, אנימציה
    ═══════════════════════════════════════════════════════════ */
 
 void visualizeGraph(void* g_ptr, int* path, int pathLen,
@@ -277,7 +285,11 @@ void visualizeGraph(void* g_ptr, int* path, int pathLen,
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Milestones 4, 5 & 6: multi-traveler
+   [M4-M7] visualizeMultiTravelers — נוסעים מרובים
+     M4 — האב מניע אנימציה (path מוכן מראש)
+     M5 — IPC מהילדים
+     M6 — WAIT מחוץ לצומת
+     M7 — תצוגת FCFS/SJF
    ═══════════════════════════════════════════════════════════ */
 
 void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
@@ -342,7 +354,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
         }
 
         if (playing) {
-            /* ── Read IPC Messages from Pipe (Milestones 5 & 6) ── */
+            /* ── Read IPC Messages from Pipe ── */
             if (milestone >= 5)
                 drainIPCPipe(pipe_fd, states, numTravelers, positions, milestone, sched);
 
@@ -351,6 +363,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                 if (states[i].isFinished) continue;
 
                 if (milestone == 4) {
+                    /* ── [M4] אנימציה מונעת הורה ── */
                     if (states[i].animState == ANIM_MOVING && states[i].pathLen > 1) {
                         int from = states[i].path[states[i].edgeIdx];
                         int to   = states[i].path[states[i].edgeIdx + 1];
@@ -387,7 +400,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         }
                     }
                 } else {
-                    // Milestones 5 & 6 interpolation
+                    /* ── [M5-M7] אנימציה מונעת IPC מהילדים ── */
                     if (states[i].isActive && states[i].animState == ANIM_MOVING) {
                         int from = states[i].currentNode;
                         int to   = states[i].nextNode;
@@ -398,7 +411,7 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         if (jp > 1.0f) jp = 1.0f;
 
                         float edgeT = ((float)states[i].subJump + jp) / (float)w;
-                        Vector2 edgeTarget = (milestone >= 6)
+                        Vector2 edgeTarget = (milestone >= 6)  /* [M6-M7] עצירה מחוץ לצומת */
                             ? outsideNodePos(positions, from, to)
                             : positions[to];
 

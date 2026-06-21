@@ -1,9 +1,10 @@
-//
-// Created by gnsyt on 08/05/2026.
-//
-
 #ifndef DIJKSTRA_H
 #define DIJKSTRA_H
+
+/*
+ * [M1] מבני גרף + Dijkstra
+ * [M4+] Traveler, loadGraphAndTravelers — קובץ עם # travelers
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,7 @@ typedef struct Graph {
 typedef struct {
     int startNode;
     int endNode;
+    int priority;   /* [M7] עדיפות (נמוך = גבוה יותר); ברירת מחדל 0 */
 } Traveler;
 
 

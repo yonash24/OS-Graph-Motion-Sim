@@ -1,6 +1,12 @@
 #ifndef IPC_H
 #define IPC_H
 
+/*
+ * [M5+] פרוטוקול IPC — pipe מהילד להורה
+ * [M6]  STATUS_WAITING_FOR_NODE
+ * [M7]  STATUS_SCHEDULE_REQUEST, remaining_cost
+ */
+
 #include <sys/types.h>
 
 // הגדרת מצבי הנוסע עבור דיווח לאב ועדכון ה-GUI
@@ -17,7 +23,8 @@ typedef struct {
     int   current_node;
     int   next_node;
     int   status;
-    int   remaining_cost;      // M7/SJF: משקל מסלול שנותר
+    int   remaining_cost;      /* M7/SJF: משקל מסלול שנותר */
+    int   priority;            /* M7: עדיפות מהקובץ (נמוך = גבוה יותר) */
 } IPC_Message;
 
 #endif
