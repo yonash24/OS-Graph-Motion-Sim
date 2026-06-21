@@ -4,7 +4,7 @@ LDFLAGS = -L./raylib-5.0_linux_amd64/lib -lraylib -l:libGL.so.1 \
           -lm -lpthread -ldl -lrt -l:libX11.so.6 \
           -Wl,-rpath,./raylib-5.0_linux_amd64/lib
 
-SRC = dijkstra.c visualization.c main.c
+SRC = dijkstra.c visualization.c main.c sched.c
 
 # Milestone 1 – Dijkstra only (no GUI, no multi-process)
 milestone1: dijkstra.c main.c
@@ -29,7 +29,11 @@ milestone5: $(SRC)
 milestone6: $(SRC)
 	$(CC) $(CFLAGS) -DMILESTONE=6 $(SRC) -o sim $(LDFLAGS)
 
-all: milestone6
+# Milestone 7 – Node entry scheduling (FCFS / SJF)
+milestone7: $(SRC)
+	$(CC) $(CFLAGS) -DMILESTONE=7 $(SRC) -o sim $(LDFLAGS)
+
+all: milestone7
 
 clean:
 	rm -f dijkstra sim *.o

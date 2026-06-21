@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "dijkstra.h"
 #include "ipc.h"
+#include "sched.h"
 
 typedef enum {
     ANIM_IDLE,      // לפני לחיצת PLAY
@@ -45,6 +46,7 @@ int     findEdgeWeight(Graph* g, int from, int to);
 int     isOnPath(int* path, int pathLen, int i, int dest);
 
 void visualizeGraph(void* g_ptr, int* path, int pathLen, int startNode, int endNode);
-void visualizeMultiTravelers(void* g_ptr, TravelerState* states, int numTravelers, int pipe_fd);
+void visualizeMultiTravelers(void* g_ptr, TravelerState* states, int numTravelers,
+                             int pipe_fd, Scheduler* sched);
 
 #endif // VISUALIZATION_H

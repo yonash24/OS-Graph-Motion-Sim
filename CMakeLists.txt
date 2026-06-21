@@ -5,4 +5,6 @@ set(CMAKE_C_STANDARD 11)
 
 add_executable(OS_Graph_Motion_Sim
         main.c
-        dijkstra.c)
+        dijkstra.c
+        sched.c
+        sched.h)

@@ -25,6 +25,7 @@ int loadGraph(const char* filename, Graph* graph, int* startNode, int* endNode) 
     graph->numEdges = M;
     graph->nodes = (Node*)malloc(N * sizeof(Node));
     if (graph->nodes == NULL) {
+        printf("Error: Memory allocation failed.\n");
         fclose(file);
         return 0;
     }
@@ -52,7 +53,12 @@ int loadGraph(const char* filename, Graph* graph, int* startNode, int* endNode) 
         }
 
         Edge* newEdge = (Edge*)malloc(sizeof(Edge));
-        if (!newEdge) return 0;
+        if (!newEdge) {
+            printf("Error: Memory allocation failed.\n");
+            freeGraph(graph);
+            fclose(file);
+            return 0;
+        }
 
         newEdge->dest = dest;
         newEdge->weight = weight;

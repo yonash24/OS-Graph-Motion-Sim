@@ -1,6 +1,7 @@
 #define _DEFAULT_SOURCE
 #include "visualization.h"
 #include <signal.h>
+#include <string.h>
 
 /* ── helpers ──────────────────────────────────────────────── */
 
@@ -21,6 +22,117 @@ int isOnPath(int* path, int pathLen, int i, int dest) {
     for (int p = 0; p < pathLen - 1; p++)
         if (path[p] == i && path[p + 1] == dest) return 1;
     return 0;
+}
+
+#define NODE_OUTSIDE_OFFSET 48.0f
+
+static Vector2 outsideNodePos(Vector2* positions, int from, int to) {
+    Vector2 dir = { positions[from].x - positions[to].x,
+                    positions[from].y - positions[to].y };
+    float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
+    if (len <= 0.0f) return positions[to];
+    dir.x /= len;
+    dir.y /= len;
+    return (Vector2){ positions[to].x + dir.x * NODE_OUTSIDE_OFFSET,
+                      positions[to].y + dir.y * NODE_OUTSIDE_OFFSET };
+}
+
+static int isTravelerInsideNode(const TravelerState* s) {
+    if (s->animState == ANIM_WAITING) return 0;
+    if (s->isActive && s->animState == ANIM_MOVING) return 0;
+    return 1;
+}
+
+static Vector2 spreadAtNode(Vector2 center, int slot, int total) {
+    if (total <= 1) return center;
+    float angle = (float)slot * (2.0f * PI / (float)total) - PI / 2.0f;
+    const float radius = 14.0f;
+    return (Vector2){ center.x + radius * cosf(angle),
+                        center.y + radius * sinf(angle) };
+}
+
+static void applyIPCMessage(const IPC_Message* msg, TravelerState* states,
+                            int numTravelers, Vector2* positions, int milestone,
+                            Scheduler* sched) {
+    for (int i = 0; i < numTravelers; i++) {
+        if (states[i].pid != msg->child_pid) continue;
+
+        if (msg->status == STATUS_SCHEDULE_REQUEST && sched) {
+            scheduler_on_request(sched, msg->next_node, msg->child_pid, i,
+                                 msg->remaining_cost);
+            break;
+        }
+        else if (msg->status == STATUS_ARRIVED_DEST) {
+            if (sched) scheduler_on_leave(sched, msg->current_node);
+            states[i].isFinished  = 1;
+            states[i].isActive    = 0;
+            states[i].animState   = ANIM_DONE;
+            states[i].currentNode = msg->current_node;
+            states[i].entPos      = positions[msg->current_node];
+            printf("[PID=%d] arrived at node %d | DESTINATION\n", msg->child_pid, msg->current_node);
+            fflush(stdout);
+        }
+        else if (msg->status == STATUS_WAITING_FOR_NODE && milestone >= 6) {
+            states[i].currentNode = msg->current_node;
+            states[i].nextNode    = msg->next_node;
+            states[i].isActive    = 0;
+            states[i].animState   = ANIM_WAITING;
+            states[i].entPos      = outsideNodePos(positions,
+                                                    msg->current_node,
+                                                    msg->next_node);
+            printf("[PID=%d] waiting outside node %d\n", msg->child_pid, msg->next_node);
+            fflush(stdout);
+        }
+        else if (msg->status == STATUS_INSIDE_NODE) {
+#if MILESTONE == 6
+            for (int j = 0; j < numTravelers; j++) {
+                if (states[j].nextNode == msg->current_node && states[j].animState == ANIM_PAUSING) {
+                    states[j].animState = ANIM_MOVING;
+                    states[j].isActive = 1;
+                }
+            }
+#endif
+            if (sched) scheduler_on_enter(sched, msg->current_node);
+
+            states[i].currentNode = msg->current_node;
+            states[i].nextNode    = msg->next_node;
+            states[i].isActive    = 0;
+            states[i].animState   = ANIM_PAUSING;
+            states[i].entPos      = positions[msg->current_node];
+            printf("[PID=%d] arrived at node %d | next node: %d\n",
+                   msg->child_pid, msg->current_node, msg->next_node);
+            fflush(stdout);
+        }
+        else if (msg->status == STATUS_DRIVING) {
+            if (sched) scheduler_on_leave(sched, msg->current_node);
+            if (states[i].animState == ANIM_MOVING &&
+                states[i].currentNode == msg->current_node &&
+                states[i].nextNode == msg->next_node) {
+                break;
+            }
+            states[i].currentNode = msg->current_node;
+            states[i].nextNode    = msg->next_node;
+            states[i].isActive    = 1;
+            states[i].animState   = ANIM_MOVING;
+            states[i].timer       = 0.0f;
+            states[i].subJump     = 0;
+        }
+        break;
+    }
+}
+
+static void drainIPCPipe(int pipe_fd, TravelerState* states, int numTravelers,
+                         Vector2* positions, int milestone, Scheduler* sched) {
+    IPC_Message msg;
+    while (read(pipe_fd, &msg, sizeof(msg)) == (ssize_t)sizeof(IPC_Message))
+        applyIPCMessage(&msg, states, numTravelers, positions, milestone, sched);
+}
+
+static void setChildrenPaused(TravelerState* states, int numTravelers, int pause) {
+    for (int i = 0; i < numTravelers; i++) {
+        if (states[i].isFinished) continue;
+        kill(states[i].pid, pause ? SIGSTOP : SIGCONT);
+    }
 }
 
 /* ── helper: compute node positions on a circle ──────────── */
@@ -169,7 +281,7 @@ void visualizeGraph(void* g_ptr, int* path, int pathLen,
    ═══════════════════════════════════════════════════════════ */
 
 void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
-                             int numTravelers, int pipe_fd) {
+                             int numTravelers, int pipe_fd, Scheduler* sched) {
     Graph* graph = (Graph*)g_ptr;
     const int SCR_W = 800, SCR_H = 600;
 
@@ -179,7 +291,11 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
     int milestone = MILESTONE;
 #endif
 
-    InitWindow(SCR_W, SCR_H, TextFormat("OS Graph Motion Sim - Milestone %d", milestone));
+    InitWindow(SCR_W, SCR_H,
+               (milestone == 7 && sched)
+                   ? TextFormat("OS Graph Motion Sim - Milestone 7 (%s)",
+                                sched_policy_name(sched->policy))
+                   : TextFormat("OS Graph Motion Sim - Milestone %d", milestone));
     SetTargetFPS(60);
 
     Vector2* positions = buildPositions(graph, SCR_W, SCR_H);
@@ -203,7 +319,14 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                     break; // Smooth GUI exit when simulation is DONE
                 }
                 playing = !playing;
-                if (milestone == 4 && playing) {
+                if (milestone >= 5) {
+                    if (!playing) {
+                        setChildrenPaused(states, numTravelers, 1);
+                        drainIPCPipe(pipe_fd, states, numTravelers, positions, milestone, sched);
+                    } else {
+                        setChildrenPaused(states, numTravelers, 0);
+                    }
+                } else if (milestone == 4 && playing) {
                     for (int i = 0; i < numTravelers; i++)
                         if (states[i].animState == ANIM_IDLE && states[i].pathLen > 1) {
                             states[i].animState = ANIM_MOVING;
@@ -213,66 +336,19 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
             }
         }
 
+        allFinished = 1;
+        for (int i = 0; i < numTravelers; i++) {
+            if (!states[i].isFinished) allFinished = 0;
+        }
+
         if (playing) {
             /* ── Read IPC Messages from Pipe (Milestones 5 & 6) ── */
-            if (milestone >= 5) {
-                IPC_Message msg;
-                while (read(pipe_fd, &msg, sizeof(msg)) == (ssize_t)sizeof(IPC_Message)) {
-                    for (int i = 0; i < numTravelers; i++) {
-                        if (states[i].pid != msg.child_pid) continue;
-
-                        if (msg.status == STATUS_ARRIVED_DEST) {
-                            states[i].isFinished  = 1;
-                            states[i].isActive    = 0;
-                            states[i].animState   = ANIM_DONE;
-                            states[i].currentNode = msg.current_node;
-                            states[i].entPos      = positions[msg.current_node];
-                            printf("[PID=%d] arrived at node %d | DESTINATION\n", msg.child_pid, msg.current_node);
-                            fflush(stdout);
-                        }
-                        else if (msg.status == STATUS_WAITING_FOR_NODE) {
-                            states[i].currentNode = msg.current_node;
-                            states[i].nextNode    = msg.next_node;
-                            states[i].isActive    = 0;
-                            states[i].animState   = ANIM_WAITING;
-                            states[i].entPos      = positions[msg.current_node];
-                            printf("[PID=%d] waiting outside node %d\n", msg.child_pid, msg.current_node);
-                            fflush(stdout);
-                        }
-                        else if (msg.status == STATUS_INSIDE_NODE) {
-                            for (int j = 0; j < numTravelers; j++) {
-                                if (states[j].nextNode == msg.current_node && states[j].animState == ANIM_PAUSING) {
-                                    states[j].animState = ANIM_MOVING;
-                                    states[j].isActive = 1;
-                                }
-                            }
-
-                            states[i].currentNode = msg.current_node;
-                            states[i].nextNode    = msg.next_node;
-                            states[i].isActive    = 0;
-                            states[i].animState   = ANIM_PAUSING;
-                            states[i].entPos      = positions[msg.current_node];
-                            printf("[PID=%d] arrived at node %d | next node: %d\n", msg.child_pid, msg.current_node, msg.next_node);
-                            fflush(stdout);
-                        }
-                        else if (msg.status == STATUS_DRIVING) {
-                            states[i].currentNode = msg.current_node;
-                            states[i].nextNode    = msg.next_node;
-                            states[i].isActive    = 1;
-                            states[i].animState   = ANIM_MOVING;
-                            states[i].timer       = 0.0f;
-                            states[i].subJump     = 0;
-                        }
-                        break;
-                    }
-                }
-            }
+            if (milestone >= 5)
+                drainIPCPipe(pipe_fd, states, numTravelers, positions, milestone, sched);
 
             /* ── Animation Update Loop ── */
-            allFinished = 1;
             for (int i = 0; i < numTravelers; i++) {
                 if (states[i].isFinished) continue;
-                allFinished = 0;
 
                 if (milestone == 4) {
                     if (states[i].animState == ANIM_MOVING && states[i].pathLen > 1) {
@@ -322,12 +398,17 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                         if (jp > 1.0f) jp = 1.0f;
 
                         float edgeT = ((float)states[i].subJump + jp) / (float)w;
+                        Vector2 edgeTarget = (milestone >= 6)
+                            ? outsideNodePos(positions, from, to)
+                            : positions[to];
+
                         if (edgeT >= 1.0f) {
-                            states[i].currentNode = to;
-                            states[i].isActive    = 0;
-                            states[i].entPos      = positions[to];
+                            states[i].isActive = 0;
+                            states[i].entPos   = edgeTarget;
+                            if (milestone < 6)
+                                states[i].currentNode = to;
                         } else {
-                            states[i].entPos = lerpV2(positions[from], positions[to], edgeT);
+                            states[i].entPos = lerpV2(positions[from], edgeTarget, edgeT);
                             if (states[i].timer >= JUMP_DURATION) {
                                 states[i].timer -= JUMP_DURATION;
                                 states[i].subJump++;
@@ -344,6 +425,15 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
 
         drawGraph(graph, positions, NULL, 0);
 
+        int nodeCounts[graph->numNodes];
+        int nodeNextSlot[graph->numNodes];
+        memset(nodeCounts, 0, (size_t)graph->numNodes * sizeof(int));
+        for (int i = 0; i < numTravelers; i++) {
+            if (isTravelerInsideNode(&states[i]))
+                nodeCounts[states[i].currentNode]++;
+        }
+        memset(nodeNextSlot, 0, (size_t)graph->numNodes * sizeof(int));
+
         // Draw Travelers
         for (int i = 0; i < numTravelers; i++) {
             Color c = states[i].color;
@@ -353,25 +443,25 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
                 c = Fade(states[i].color, 0.4f);
             }
             else if (states[i].animState == ANIM_WAITING) {
-                c = ((int)(GetTime() * 4) % 2 == 0) ? GOLD : ORANGE;
-
-                int from = states[i].currentNode;
-                int to   = states[i].nextNode;
-
-                Vector2 dir = { positions[from].x - positions[to].x, positions[from].y - positions[to].y };
-                float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
-                if (len > 0) {
-                    dir.x /= len;
-                    dir.y /= len;
-                    drawPos.x = positions[to].x + dir.x * 35.0f;
-                    drawPos.y = positions[to].y + dir.y * 35.0f;
-                }
+                c = Fade(states[i].color,
+                         ((int)(GetTime() * 4) % 2 == 0) ? 1.0f : 0.55f);
+                drawPos = states[i].entPos;
+            }
+            else if (isTravelerInsideNode(&states[i])) {
+                int node = states[i].currentNode;
+                int slot = nodeNextSlot[node]++;
+                drawPos = spreadAtNode(positions[node], slot, nodeCounts[node]);
             }
 
             DrawCircleV(drawPos, 12, c);
             DrawCircleLines((int)drawPos.x, (int)drawPos.y, 12, DARKGRAY);
 
-            // כתיבת מספר הנוסע וה-PID מעל הראש בזמן חסימה
+            if (isTravelerInsideNode(&states[i])) {
+                const char* idText = TextFormat("%d", i + 1);
+                int textW = MeasureText(idText, 12);
+                DrawText(idText, (int)drawPos.x - textW / 2, (int)drawPos.y - 6, 12, RAYWHITE);
+            }
+
             if (states[i].animState == ANIM_WAITING) {
                 const char* waitText = TextFormat("T%d (PID:%d) WAIT", i + 1, states[i].pid);
                 int textW = MeasureText(waitText, 11);
@@ -391,6 +481,9 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
         DrawText(btnLabel, (int)(btn.x + (btn.width - bw) / 2), (int)(btn.y + (btn.height - 18) / 2), 18, WHITE);
 
         DrawText(TextFormat("OS Graph Motion Sim - Milestone %d", milestone), 20, 15, 18, DARKGRAY);
+        if (milestone == 7 && sched)
+            DrawText(TextFormat("Node scheduler: %s", sched_policy_name(sched->policy)),
+                     20, 42, 14, DARKBLUE);
 
         EndDrawing();
     }
