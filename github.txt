@@ -1,0 +1,18 @@
+sudo apt update
+sudo apt install git
+git config --global user.name "Your Name"
+git config --global user.email "your_email@example.com"
+git clone https://github.com/yonash24/OS-Graph-Motion-Sim.git
+
+enter the project
+git status
+
+git add file.txt
+git commit -m "updated"
+git push origin main
+git tag my_tag
+git push origin my_tag
+
+make clean
+make milestone7
+./sim -schd sjf data_m7.txt
