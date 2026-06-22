@@ -11,6 +11,7 @@
 
 #define SCHED_MAX_NODES     16
 #define SCHED_MAX_TRAVELERS 10
+#define SCHED_STARVATION_TIMEOUT_US  (5L * 1000000L)  /* 5s → anti-starvation boost */
 
 typedef enum {
     SCHED_FCFS,
@@ -39,6 +40,7 @@ void          scheduler_on_request(Scheduler* s, int node, pid_t pid, int travel
                                    int remaining_cost, int priority);
 void          scheduler_on_enter(Scheduler* s, int node);
 void          scheduler_on_leave(Scheduler* s, int node);
+void          scheduler_poll(Scheduler* s);
 const char*   sched_policy_name(SchedPolicy policy);
 
 #endif

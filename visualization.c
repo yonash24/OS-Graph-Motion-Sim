@@ -358,6 +358,9 @@ void visualizeMultiTravelers(void* g_ptr, TravelerState* states,
             if (milestone >= 5)
                 drainIPCPipe(pipe_fd, states, numTravelers, positions, milestone, sched);
 
+            if (milestone == 7 && sched)
+                scheduler_poll(sched);
+
             /* ── Animation Update Loop ── */
             for (int i = 0; i < numTravelers; i++) {
                 if (states[i].isFinished) continue;

@@ -51,7 +51,9 @@ When several travelers wait outside the same node, the **parent process** manage
 | Algorithm | Selection rule |
 |-----------|----------------|
 | **FCFS** | First traveler that requested the node |
-| **SJF** | Traveler with the smallest **remaining path weight** (sum of edge weights left to destination); ties broken by **priority** (lower = higher), then FCFS |
+| **SJF** | Traveler with the smallest **remaining path weight** (sum of edge weights left to destination); ties broken by **priority** (lower = higher), then **FCFS** (arrival order) |
+
+**Anti-starvation (SJF & FCFS):** if a traveler waits in the queue for **5 seconds or more**, they are promoted and admitted next (FCFS among starved waiters) when the node becomes free. The parent re-checks queues every GUI frame via `scheduler_poll()`.
 
 The choice is made at runtime:
 ```bash

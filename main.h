@@ -33,7 +33,7 @@
  *      → visualization.c : STATUS_WAITING, outsideNodePos, ANIM_WAITING
  *
  *  M7  תזמון FCFS/SJF (-schd fcfs|sjf)
- *      → sched.c/h       : Scheduler, pick_next(), try_admit()
+ *      → sched.c/h       : Scheduler, pick_next(), try_admit(), scheduler_poll()
  *      → main.c          : parseM7Args(), grant_sems, childProcess M7
  *      → ipc.h           : STATUS_SCHEDULE_REQUEST, remaining_cost
  *      → visualization.c : scheduler_on_* ב-applyIPCMessage()
