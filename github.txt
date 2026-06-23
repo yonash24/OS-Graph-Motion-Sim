@@ -15,4 +15,4 @@ git push origin my_tag
 
 make clean
 make milestone7
-./sim -schd sjf data_m7.txt
+./sim -schd sjf data_m7.txt1
