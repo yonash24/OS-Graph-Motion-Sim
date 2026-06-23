@@ -2,6 +2,8 @@ after getting into the VM and opening VSC:
 inside terminal:
 git clone https://github.com/yonash24/OS-Graph-Motion-Sim.git
 cd OS-Graph-Motion-Sim
+raylib download: wget https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_linux_amd64.tar.gz
+raylib extract: tar -xvf raylib-5.0_linux_amd64.tar.gz
 git remote set-url origin https://<YOUR_GIT_NICKNAME>:<YOUR_NEW_TOKEN>@github.com/yonash24/OS-Graph-Motion-Sim.git
 git checkout main
 git pull
@@ -11,6 +13,15 @@ git add.
 git commit -m "ur msg about changes made"
 git push origin שם_המשימה/[תעודת_זהות]
 done
+
+בלת"מים:
+
+# אם קופצת האזהרה המציקה של ה-CRLF (שורות של ווינדוס/לינוקס):
+git config core.autocrlf false
+
+# אם עשית בלגן מקומי ואתה רוצה לאפס הכל ולהתחיל מחדש ממה שיש בשרת:
+git clean -fd
+git reset --hard origin/main
 
 note: if ur VSC doesnt open up inside the VMWARE dont freak out, open linux CMD -> code --disable-gpu 
 goodluck
