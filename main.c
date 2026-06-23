@@ -10,6 +10,13 @@
 #include <semaphore.h>
 #include <sys/mman.h>
 
+void handle_sigusr1(int sig) {
+    printf("[PID %d] Received SIGUSR1 instead of death, sleeping...\n", getpid());
+    fflush(stdout);
+    sleep(2);
+    exit(0);
+}
+
 /* Default to Milestone 6 if not specified via -DMILESTONE=N */
 #ifndef MILESTONE
 #define MILESTONE 6
@@ -274,6 +281,7 @@ int main(int argc, char* argv[]) {
         if (pid == -1) { perror("fork"); return 1; }
 
         if (pid == 0) {
+            signal(SIGUSR1, handle_sigusr1);
             printf("[%d] started\n", getpid());
             fflush(stdout);
             while (1) pause();
@@ -295,7 +303,8 @@ int main(int argc, char* argv[]) {
     visualizeMultiTravelers(&graph, states, numTravelers, -1, NULL);
 
     for (int i = 0; i < numTravelers; i++) {
-        kill(states[i].pid, SIGTERM);
+        printf("Parent sending SIGUSR1 to child PID %d...\n", states[i].pid);
+        kill(states[i].pid, SIGUSR1);
         int status;
         pid_t done = waitpid(states[i].pid, &status, 0);
         if (done > 0) printf("[PID=%d] finished\n", done);
