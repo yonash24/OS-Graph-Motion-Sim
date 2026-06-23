@@ -1,0 +1,16 @@
+after getting into the VM and opening VSC:
+inside terminal:
+git clone https://github.com/yonash24/OS-Graph-Motion-Sim.git
+cd OS-Graph-Motion-Sim
+git remote set-url origin https://<YOUR_GIT_NICKNAME>:<YOUR_NEW_TOKEN>@github.com/yonash24/OS-Graph-Motion-Sim.git
+git checkout main
+git pull
+git checkout -b שם_המשימה/[תעודת_זהות]
+making code changes
+git add.
+git commit -m "ur msg about changes made"
+git push origin שם_המשימה/[תעודת_זהות]
+done
+
+note: if ur VSC doesnt open up inside the VMWARE dont freak out, open linux CMD -> code --disable-gpu 
+goodluck
