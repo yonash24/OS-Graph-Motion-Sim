@@ -34,6 +34,12 @@ static int pick_starved(const Scheduler* s, int node) {
     return best;
 }
 
+static int gather_active(const Scheduler* s, int node) {
+    if (s->gather_until_us[node] <= 0) return 0;
+    if (pick_starved(s, node) >= 0) return 0;
+    return now_us() < s->gather_until_us[node];
+}
+
 static int pick_next(const Scheduler* s, int node) {  /* [M7] FCFS / SJF */
     int len = s->queue_len[node];
     if (len <= 0) return -1;
@@ -63,6 +69,10 @@ static int pick_next(const Scheduler* s, int node) {  /* [M7] FCFS / SJF */
 static void try_admit(Scheduler* s, int node) {
     if (node < 0 || node >= s->num_nodes) return;
     if (s->node_busy[node] || s->queue_len[node] <= 0) return;
+
+    if (gather_active(s, node)) return;
+    if (s->gather_until_us[node] > 0)
+        s->gather_until_us[node] = 0;
 
     int pick = pick_next(s, node);
     if (pick < 0) return;
@@ -98,6 +108,7 @@ void scheduler_init(Scheduler* s, SchedPolicy policy, int num_nodes, sem_t* gran
     for (int i = 0; i < SCHED_MAX_NODES; i++) {
         s->node_busy[i] = 0;
         s->queue_len[i] = 0;
+        s->gather_until_us[i] = 0;
     }
 }
 
@@ -106,12 +117,19 @@ void scheduler_on_request(Scheduler* s, int node, pid_t pid, int traveler_idx,
     if (node < 0 || node >= s->num_nodes) return;
     if (s->queue_len[node] >= SCHED_MAX_TRAVELERS) return;
 
+    int was_empty = (s->queue_len[node] == 0);
+
     SchedWaitEntry* e = &s->queue[node][s->queue_len[node]++];
     e->pid = pid;
     e->traveler_idx = traveler_idx;
     e->remaining_cost = remaining_cost;
     e->priority = priority;
     e->arrival_us = now_us();
+
+    if (was_empty)
+        s->gather_until_us[node] = now_us() + SCHED_GATHER_US;
+    else if (s->gather_until_us[node] > 0)
+        s->gather_until_us[node] = now_us() + SCHED_GATHER_US; /* extend until last arrival */
 
     printf("[Scheduler/%s] PID=%d queued for node %d (remaining=%d, priority=%d, queue=%d)\n",
            sched_policy_name(s->policy), (int)pid, node, remaining_cost, priority,

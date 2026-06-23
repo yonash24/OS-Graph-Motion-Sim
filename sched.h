@@ -12,6 +12,7 @@
 #define SCHED_MAX_NODES     16
 #define SCHED_MAX_TRAVELERS 10
 #define SCHED_STARVATION_TIMEOUT_US  (5L * 1000000L)  /* 5s → anti-starvation boost */
+#define SCHED_GATHER_US              (400L * 1000L)   /* let all waiters join before 1st admit */
 
 typedef enum {
     SCHED_FCFS,
@@ -32,6 +33,7 @@ typedef struct {
     int         node_busy[SCHED_MAX_NODES];
     SchedWaitEntry queue[SCHED_MAX_NODES][SCHED_MAX_TRAVELERS];
     int         queue_len[SCHED_MAX_NODES];
+    long        gather_until_us[SCHED_MAX_NODES]; /* defer 1st admit until gather window ends */
     sem_t*      grant_sems;
 } Scheduler;
 

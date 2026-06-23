@@ -5,8 +5,8 @@
 3 4 2
 3 1 4
 3 5 8
-# travelers
+# travelers  (fork order = FCFS queue order when paths to node 3 are equal)
 3
 0 5
-2 4
 4 1
+2 4

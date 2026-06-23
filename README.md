@@ -50,15 +50,18 @@ When several travelers wait outside the same node, the **parent process** manage
 
 | Algorithm | Selection rule |
 |-----------|----------------|
-| **FCFS** | First traveler that requested the node |
+| **FCFS** | First traveler in the **FIFO queue** (front of queue) |
 | **SJF** | Traveler with the smallest **remaining path weight** (sum of edge weights left to destination); ties broken by **priority** (lower = higher), then **FCFS** (arrival order) |
 
 **Anti-starvation (SJF & FCFS):** if a traveler waits in the queue for **5 seconds or more**, they are promoted and admitted next (FCFS among starved waiters) when the node becomes free. The parent re-checks queues every GUI frame via `scheduler_poll()`.
 
+**Gather window (FCFS & SJF):** admission at a node is deferred until **400 ms after the last** `SCHEDULE_REQUEST` in a burst, so all waiters join the queue before the scheduler decides.
+
 The choice is made at runtime:
 ```bash
-./sim -schd fcfs data_m5.txt   # demo: FCFS (staggered arrival at node 3)
-./sim -schd sjf  data_m7.txt   # demo: SJF (different remaining path weights)
+./sim -schd fcfs data_m7.txt   # FCFS demo — same file as SJF
+./sim -schd sjf  data_m7.txt   # SJF demo
+./sim -schd fcfs data_m5.txt   # FCFS only (staggered arrival)
 ```
 
 **How it works:** each child sends `STATUS_SCHEDULE_REQUEST` (with `remaining_cost` and `priority` from the input file) and blocks on a personal grant semaphore. The parent enqueues the request and calls `sem_post` only for the traveler selected by FCFS or SJF when the node is free.
@@ -67,24 +70,18 @@ The choice is made at runtime:
 
 | File | Scheduler | Why |
 |------|-----------|-----|
-| `data_m5.txt` | **FCFS** | Different edge weights **to** node 3 → travelers arrive at different times (2→3 weight 2, 4→3 weight 5, 0→3 weight 8). FCFS entry order at node 3: **2 → 4 → 0**. |
-| `data_m7.txt` | **SJF** | Same arrival time (all weight 2 to node 3), but **different remaining weights after** node 3. SJF entry order: **2→4** (remaining 2), **4→1** (4), **0→5** (8). |
+| `data_m7.txt` | **Both** | All edges **to** node 3 have weight **2** (equal travel). Travelers listed in fork order: **0→5** (rem 8), **4→1** (4), **2→4** (rem 2). **FCFS** (FIFO queue): **red** → **4→1** → **2→4**. **SJF**: **2→4** (2) → **4→1** (4) → **red** (8). First in queue has the **longest** remaining, not the shortest. |
+| `data_m5.txt` | **FCFS** | Staggered arrival only (2→3 weight 2, 4→3 weight 5, 0→3 weight 8). FCFS entry order at node 3: **2 → 4 → 0**. |
 
-### FCFS vs SJF — waiting time at node 3
+### FCFS vs SJF — same file (`data_m7.txt`)
 
-Each traveler spends **~1 second inside** the node before driving out. Waiting time is measured from `STATUS_WAITING_FOR_NODE` until the scheduler grants entry (`[Scheduler/...] granted node 3`).
+Compare terminal lines `[Scheduler/FCFS] granted node 3` vs `[Scheduler/SJF] granted node 3`:
 
-| Traveler | FCFS (`data_m5.txt`) | SJF (`data_m7.txt`) |
-|----------|----------------------|---------------------|
-| From node **2** → 1 | Arrives **first** → ~**0 s** wait | Remaining path **2** → served **1st** → ~**0 s** wait |
-| From node **4** → 1 | Arrives **second** → ~**1 s** wait | Remaining path **4** → served **2nd** → ~**1 s** wait |
-| From node **0** → 1 | Arrives **last** → ~**2 s** wait | Remaining path **8** → served **3rd** → ~**2 s** wait |
-
-**Why the numbers differ between algorithms:** under FCFS, order follows **arrival time** at the node (driven by different edge weights in `data_m5.txt`). Under SJF, all three reach node 3 at nearly the same time, but the scheduler picks by **remaining path weight** — so the traveler heading to node 4 (shortest remaining route) enters first even though it started at node 2.
-
-If two travelers have the **same** remaining weight, SJF uses **priority** from the input file (lower number wins), then FCFS by request time.
-
-Compare the `[Scheduler/...] granted node 3` lines in the terminal for each run.
+| Order | FCFS (FIFO — first in queue) | SJF (shortest remaining) |
+|-------|------------------------------|---------------------------|
+| 1st | **Red** 0→5 (rem **8**, 1st in queue) | **2→4** (rem **2**) |
+| 2nd | 4→1 (rem 4) | 4→1 (rem 4) |
+| 3rd | **2→4** (rem 2, last in queue) | **Red** 0→5 (rem 8) |
 
 ### IPC Method Selection (Milestone 5)
 For inter-process communication between the parent and the children, we chose to use **Pipes (`pipe()`)**.
