@@ -64,6 +64,23 @@ static void applyIPCMessage(const IPC_Message* msg, TravelerState* states,
     for (int i = 0; i < numTravelers; i++) {
         if (states[i].pid != msg->child_pid) continue;
 
+        if (msg->status == STATUS_NO_PATH) {
+            states[i].isFinished  = 1;
+            states[i].isActive    = 0;
+            states[i].animState   = ANIM_DONE;
+            states[i].currentNode = msg->current_node;
+            states[i].nextNode    = msg->next_node;
+            states[i].entPos      = positions[msg->current_node];
+
+            printf("[PID=%d] NO PATH: cannot travel from node %d to node %d\n",
+                msg->child_pid,
+                msg->current_node,
+                msg->next_node);
+
+            fflush(stdout);
+            break;
+}
+
         if (msg->status == STATUS_SCHEDULE_REQUEST && sched) {  /* [M7] */
             scheduler_on_request(sched, msg->next_node, msg->child_pid, i,
                                  msg->remaining_cost, msg->priority);
