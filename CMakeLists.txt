@@ -7,4 +7,5 @@ add_executable(OS_Graph_Motion_Sim
         main.c
         dijkstra.c
         sched.c
-        sched.h)
+        sched.h
+        visualization.c)

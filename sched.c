@@ -74,30 +74,50 @@ static void try_admit(Scheduler* s, int node) {
     if (s->gather_until_us[node] > 0)
         s->gather_until_us[node] = 0;
 
+    // 1. הדפסת רשימת הממתינים הנוכחית בצומת לפני הבחירה
+    printf("\n[Scheduler/%s] --- Node %d Decision Window ---\n", sched_policy_name(s->policy), node);
+    printf("  Current Waiters in Queue (%d total):\n", s->queue_len[node]);
+    for (int i = 0; i < s->queue_len[node]; i++) {
+        long waited_ms = (now_us() - s->queue[node][i].arrival_us) / 1000;
+        printf("    [%d] Traveler IDX=%d, PID=%d | Remaining Cost=%d | Priority=%d | Waited=%ldms\n",
+               i, s->queue[node][i].traveler_idx, (int)s->queue[node][i].pid,
+               s->queue[node][i].remaining_cost, s->queue[node][i].priority, waited_ms);
+    }
+
+    // 2. בחירת הנוסע הבא
     int pick = pick_next(s, node);
-    if (pick < 0) return;
+    if (pick < 0) {
+        printf("  No traveler could be selected.\n");
+        fflush(stdout);
+        return;
+    }
 
     SchedWaitEntry chosen = s->queue[node][pick];
     long waited_us = entry_wait_us(&chosen);
     int anti_starvation = (waited_us >= SCHED_STARVATION_TIMEOUT_US);
 
+    // 3. הדפסה מפורטת: מי נבחר ולמה הוא נבחר
+    printf("  >> SELECTED: Traveler IDX=%d (PID=%d)\n", chosen.traveler_idx, (int)chosen.pid);
+    if (anti_starvation) {
+        printf("  >> REASON: Anti-Starvation Boost! (Waited %.1fs >= %.1fs Threshold)\n",
+               waited_us / 1000000.0, SCHED_STARVATION_TIMEOUT_US / 1000000.0);
+    } else if (s->policy == SCHED_SJF) {
+        printf("  >> REASON: SJF Selection (Shortest remaining path cost: %d, Tie-breaker Priority: %d)\n",
+               chosen.remaining_cost, chosen.priority);
+    } else {
+        printf("  >> REASON: FCFS Selection (Earliest arrival time in queue)\n");
+    }
+    printf("-----------------------------------------\n\n");
+    fflush(stdout);
+
+    // הוצאת האיבר שנבחר מהתור
     for (int i = pick; i < s->queue_len[node] - 1; i++)
         s->queue[node][i] = s->queue[node][i + 1];
     s->queue_len[node]--;
 
     s->node_busy[node] = 1;
 
-    if (anti_starvation) {
-        printf("[Scheduler/%s] granted node %d to PID=%d (anti-starvation, waited %.1fs)\n",
-               sched_policy_name(s->policy), node, (int)chosen.pid,
-               waited_us / 1000000.0);
-    } else {
-        printf("[Scheduler/%s] granted node %d to PID=%d (remaining=%d, priority=%d)\n",
-               sched_policy_name(s->policy), node, (int)chosen.pid,
-               chosen.remaining_cost, chosen.priority);
-    }
-    fflush(stdout);
-
+    // שחרור הנוסע הנבחר
     sem_post(&s->grant_sems[chosen.traveler_idx]);
 }
 
