@@ -267,3 +267,6 @@ void freeGraph(Graph* graph) {
     }
     free(graph->nodes);
 }
+
+
+//CHECK
